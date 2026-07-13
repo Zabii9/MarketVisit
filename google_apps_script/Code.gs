@@ -13,8 +13,14 @@ function doPost(e) {
     const folderId = properties.getProperty('FOLDER_ID');
     const payload = JSON.parse(e.postData.contents || '{}');
 
-    if (!expectedToken || !folderId) {
-      return output({ ok: false, error: 'Script properties are not configured.' });
+    const missingProperties = [];
+    if (!folderId) missingProperties.push('FOLDER_ID');
+    if (!expectedToken) missingProperties.push('UPLOAD_TOKEN');
+    if (missingProperties.length) {
+      return output({
+        ok: false,
+        error: 'Missing Apps Script properties: ' + missingProperties.join(', ')
+      });
     }
     if (!payload.token || payload.token !== expectedToken) {
       return output({ ok: false, error: 'Invalid upload token.' });

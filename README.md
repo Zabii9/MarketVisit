@@ -25,10 +25,54 @@ key in Streamlit secrets. Never put a service-account JSON file in this reposito
 
 The app creates this header row when `Dump` is empty:
 
-`Submission ID, Submitted At, Partner Name, Shop Name, Shop Picture + Selfie, Area, Sub Area, Booker Name, Shop Avg Monthly Sales, Last Order Booker Visit, Competitor Brands Available, Top Brands Available, Remarks`
+`Submission ID, Submitted At, Partner Name, Shop Name, Shop Picture + Selfie, Area, Sub Area, Booker Name, Shop Avg Monthly Sales, Last Order Booker Visit, Competitor Brands Available, Top Brands Available, Remarks, Store Code, Username`
 
 If the sheet already contains content with different headers, move or clear it
 before the first submission.
+
+## Login and roles
+
+Users are configured in `.streamlit/secrets.toml` with SHA-256 password hashes.
+Generate a hash without placing the plain password in a file:
+
+```powershell
+python -c "import hashlib,getpass; print(hashlib.sha256(getpass.getpass('Password: ').encode()).hexdigest())"
+```
+
+An administrator can access every partner:
+
+```toml
+[users.admin]
+display_name = "Administrator"
+password_hash = "PASTE_SHA256_HASH"
+role = "admin"
+```
+
+A partner user is restricted to one Universe distributor code:
+
+```toml
+[users.khi_user]
+display_name = "Olpers KHI User"
+password_hash = "PASTE_SHA256_HASH"
+role = "partner"
+partner_code = "D70002202"
+```
+
+To assign multiple partners to one user, use a TOML list instead:
+
+```toml
+[users.multi_partner_user]
+display_name = "KHI and LHR User"
+password_hash = "PASTE_SHA256_HASH"
+role = "partner"
+partner_codes = ["D70002202", "D70002246"]
+```
+
+Both `partner_code` and `partner_codes` are supported, but configure only one of
+them for each user.
+
+Every submission saves the authenticated username in the `Username` column.
+Never store plain passwords in the secrets file.
 
 ## Run locally
 
