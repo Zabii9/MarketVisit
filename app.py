@@ -711,13 +711,27 @@ with st.container(border=True, key="market_visit_card"):
             """,
             unsafe_allow_html=True,
         )
+    st.markdown('<div class="section-label">Market observations</div>', unsafe_allow_html=True)
 
-    photo = st.file_uploader(
-        "Shop Picture + Selfie *",
-        type=["jpg", "jpeg", "png", "webp"],
-        help="Take or upload one clear photo showing you and the shop.",
-        key=form_key("visit_photo"),
-    )
+    st.markdown(r"**Shop Picture + Selfie \***")
+    camera_open_key = form_key("camera_open")
+    if not st.session_state.get(camera_open_key, False):
+        if st.button(
+            "📷 Open camera",
+            key=form_key("open_camera"),
+            use_container_width=True,
+        ):
+            st.session_state[camera_open_key] = True
+            st.rerun()
+
+    photo = None
+    if st.session_state.get(camera_open_key, False):
+        photo = st.camera_input(
+            "Take shop picture + selfie",
+            help="Take one clear photo showing you and the shop.",
+            key=form_key("visit_photo"),
+            label_visibility="collapsed",
+        )
 
     monthly_sales = st.number_input(
         "Shop Avg Monthly Sales (PKR) *",
@@ -728,7 +742,6 @@ with st.container(border=True, key="market_visit_card"):
         key=form_key("monthly_sales"),
     )
 
-    st.markdown('<div class="section-label">Market observations</div>', unsafe_allow_html=True)
     visited_before = st.checkbox("The order booker has visited this shop before", key=form_key("visited_before"))
     last_visit: date | None = None
     if visited_before:
