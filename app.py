@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import os
@@ -9,6 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import gspread
+import requests
 import streamlit as st
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -144,7 +146,40 @@ def _save_photo(uploaded_file: Any, submission_id: str, credentials: Credentials
     extension = Path(uploaded_file.name).suffix.lower() or ".jpg"
     filename = f"{submission_id}{extension}"
     content = uploaded_file.getvalue()
+    apps_script_url = _secret("apps_script_upload_url", "")
+    apps_script_token = _secret("apps_script_upload_token", "")
     drive_folder_id = _secret("drive_folder_id", "")
+
+    # Apps Script runs as the human owner of a personal Drive folder, avoiding
+    # the service account's zero-storage limitation.
+    if apps_script_url:
+        if not apps_script_token:
+            raise RuntimeError(
+                "apps_script_upload_token is missing from Streamlit secrets."
+            )
+        try:
+            response = requests.post(
+                apps_script_url,
+                json={
+                    "token": apps_script_token,
+                    "filename": filename,
+                    "mimeType": uploaded_file.type or "image/jpeg",
+                    "data": base64.b64encode(content).decode("ascii"),
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            result = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise RuntimeError(
+                "The Google Apps Script photo uploader could not be reached. "
+                "Confirm the deployment URL and that access is set to Anyone."
+            ) from exc
+        if not result.get("ok"):
+            raise RuntimeError(
+                f"Google Apps Script rejected the photo: {result.get('error', 'Unknown error')}"
+            )
+        return str(result["url"])
 
     if drive_folder_id:
         drive = build("drive", "v3", credentials=credentials, cache_discovery=False)
@@ -327,10 +362,10 @@ if submitted:
             st.error(f"Could not save this visit: {exc}")
 
 
-if not _secret("drive_folder_id", ""):
+if not _secret("apps_script_upload_url", "") and not _secret("drive_folder_id", ""):
     st.info(
-        "Photo storage is currently local. Add `drive_folder_id` to Streamlit secrets "
-        "before cloud deployment so photo links remain available."
+        "Photo storage is currently local. Configure an Apps Script upload URL or "
+        "a Workspace Shared Drive folder before cloud deployment."
     )
 
 st.markdown(

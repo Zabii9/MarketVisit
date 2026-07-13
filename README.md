@@ -49,6 +49,25 @@ for folders the authenticated account cannot access. A 403 storage-quota error
 means the destination is a normal My Drive folder; use a Workspace Shared Drive or
 an OAuth/Apps Script uploader that runs as a human account.
 
+## Personal Google account photo uploads
+
+Service accounts have zero Drive storage, so a normal My Drive folder requires the
+included Google Apps Script uploader:
+
+1. Open [script.google.com](https://script.google.com), create a new project, and
+   paste `google_apps_script/Code.gs` into its `Code.gs` editor.
+2. Open **Project Settings → Script properties** and add `FOLDER_ID` with the My
+   Drive photo-folder ID. Add `UPLOAD_TOKEN` with a long random secret value.
+3. Select **Deploy → New deployment → Web app**. Choose **Execute as: Me** and
+   **Who has access: Anyone**, authorize it, and deploy.
+4. Copy the deployment URL ending in `/exec` to `apps_script_upload_url` in
+   `.streamlit/secrets.toml`. Put the same token in `apps_script_upload_token`.
+5. The Apps Script URL takes priority over `drive_folder_id`, so that old value can
+   remain or be changed to an empty string.
+
+The endpoint verifies the private upload token before accepting a photo. Keep the
+token and `.streamlit/secrets.toml` private.
+
 ## Deploy on Streamlit Community Cloud
 
 Push the project without `.streamlit/secrets.toml`, create a Streamlit app pointing
