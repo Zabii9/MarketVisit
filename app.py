@@ -6,6 +6,7 @@ import html
 import hmac
 import io
 import os
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,7 @@ import streamlit as st
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 
 SHEET_ID = "1Mt-Y09-azOOQ9r6nqELCQbeoeNtE-Z3JJaJ5WiMzP0A"
@@ -429,6 +430,102 @@ def _last_recorded_visit(
     return max(timestamps).strftime("%d %b %Y")
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _user_submissions(username: str) -> list[dict[str, Any]]:
+    """Return submissions owned by the authenticated username, newest first."""
+    records = _worksheet(_credentials()).get_all_records()
+    normalized_username = username.strip().casefold()
+    owned_records = [
+        record
+        for record in records
+        if str(record.get("Username", "")).strip().casefold()
+        == normalized_username
+    ]
+    owned_records.sort(
+        key=lambda record: str(record.get("Submitted At", "")), reverse=True
+    )
+    return [
+        {
+            "_Submission ID": record.get("Submission ID", ""),
+            "Submitted At": record.get("Submitted At", ""),
+            "Partner": record.get("Partner Name", ""),
+            "Store Code": record.get("Store Code", ""),
+            "Shop Name": record.get("Shop Name", ""),
+            "Area": record.get("Area", ""),
+            "Sub Area": record.get("Sub Area", ""),
+            "Booker Name": record.get("Booker Name", ""),
+            "Monthly Sales": record.get("Shop Avg Monthly Sales", ""),
+            "Photo": "Available" if record.get("Shop Picture + Selfie") else "",
+            "Remarks": record.get("Remarks", ""),
+        }
+        for record in owned_records
+    ]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _submission_photo_bytes(photo_source: str) -> tuple[bytes, str, str] | None:
+    """Load a local or private Drive photo for authenticated in-app viewing."""
+    source = str(photo_source or "").strip()
+    if not source:
+        return None
+
+    local_photo = Path(source)
+    if local_photo.is_file():
+        mime_type = "image/png" if local_photo.suffix.lower() == ".png" else "image/jpeg"
+        return local_photo.read_bytes(), mime_type, local_photo.name
+
+    drive = build("drive", "v3", credentials=_credentials(), cache_discovery=False)
+    file_id = ""
+    id_match = re.search(r"/d/([^/]+)", source)
+    if id_match:
+        file_id = id_match.group(1)
+    else:
+        id_match = re.search(r"[?&]id=([^&]+)", source)
+        if id_match:
+            file_id = id_match.group(1)
+
+    if file_id:
+        metadata = drive.files().get(
+            fileId=file_id,
+            fields="id,name,mimeType",
+            supportsAllDrives=True,
+        ).execute()
+    else:
+        filename = Path(source.replace("\\", "/")).name
+        folder_id = str(_secret("drive_folder_id", "")).strip()
+        if not filename or not folder_id:
+            return None
+        escaped_name = filename.replace("'", "\\'")
+        query = (
+            f"'{folder_id}' in parents and name = '{escaped_name}' and trashed = false"
+        )
+        files = drive.files().list(
+            q=query,
+            fields="files(id,name,mimeType)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+            pageSize=1,
+        ).execute().get("files", [])
+        if not files:
+            return None
+        metadata = files[0]
+        file_id = metadata["id"]
+
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(
+        buffer,
+        drive.files().get_media(fileId=file_id, supportsAllDrives=True),
+    )
+    complete = False
+    while not complete:
+        _, complete = downloader.next_chunk()
+    return (
+        buffer.getvalue(),
+        metadata.get("mimeType", "image/jpeg"),
+        metadata.get("name", "submission-photo.jpg"),
+    )
+
+
 def _save_photo(uploaded_file: Any, submission_id: str, credentials: Credentials) -> str:
     extension = Path(uploaded_file.name).suffix.lower() or ".jpg"
     filename = f"{submission_id}{extension}"
@@ -550,7 +647,7 @@ if not current_user:
             placeholder="Enter password",
         )
         login_submitted = st.form_submit_button(
-            "Sign in", type="primary", use_container_width=True
+            "Sign in", type="primary", width="stretch"
         )
 
     if login_submitted:
@@ -568,7 +665,7 @@ if st.button("Log out", key="header_logout"):
 
 role_label = "Administrator" if current_user["role"] == "admin" else "Partner"
 with st.container(key="header_account"):
-    st.caption(f"Signed in as **{current_user['display_name']}** · {role_label}")
+    st.caption(f"Signed in as **{current_user['display_name']}**")
 
 st.markdown('<div class="section-label">Visit details</div>', unsafe_allow_html=True)
 
@@ -834,6 +931,7 @@ if submitted:
                 ]
                 _worksheet(credentials).append_row(row, value_input_option="USER_ENTERED")
                 _last_recorded_visit.clear()
+                _user_submissions.clear()
             st.session_state["_market_visit_success"] = (
                 f"Market visit saved successfully. Reference: {submission_id}"
             )
@@ -843,6 +941,50 @@ if submitted:
             st.error(f"Could not save this visit: {exc}")
 
 
+submissions_title_col, submissions_refresh_col = st.columns([4, 1])
+with submissions_title_col:
+    st.markdown(
+        '<div class="section-label">My submissions</div>',
+        unsafe_allow_html=True,
+    )
+with submissions_refresh_col:
+    if st.button("Refresh", key="refresh_submissions", width="stretch"):
+        _user_submissions.clear()
+        st.rerun()
+
+try:
+    user_submissions = _user_submissions(current_user["username"])
+    if user_submissions:
+        st.dataframe(
+            user_submissions,
+            width="stretch",
+            hide_index=True,
+            column_order=[
+                "Submitted At",
+                "Partner",
+                "Store Code",
+                "Shop Name",
+                "Area",
+                "Sub Area",
+                "Booker Name",
+                "Monthly Sales",
+                "Photo",
+                "Remarks",
+            ],
+            column_config={
+                "Monthly Sales": st.column_config.NumberColumn(
+                    "Monthly Sales", format="%d"
+                ),
+            },
+        )
+        st.caption(f"Showing {len(user_submissions)} submission(s).")
+
+    else:
+        st.info("You have not submitted any market visits yet.")
+except Exception as exc:
+    st.error(f"Could not load your submissions: {exc}")
+
+
 if not _secret("apps_script_upload_url", "") and not _secret("drive_folder_id", ""):
     st.info(
         "Photo storage is currently local. Configure an Apps Script upload URL or "
@@ -850,6 +992,6 @@ if not _secret("apps_script_upload_url", "") and not _secret("drive_folder_id", 
     )
 
 st.markdown(
-    '<div class="footnote">Fields marked * are required · Times are saved in Pakistan Standard Time</div>',
+    '<div class="footnote">Fields marked * are required · Copyright Shahzeb Hassan (+923015773181)</div>',
     unsafe_allow_html=True,
 )
