@@ -686,8 +686,6 @@ role_label = "Administrator" if current_user["role"] == "admin" else "Partner"
 with st.container(key="header_account"):
     st.caption(f"Signed in as **{current_user['display_name']}**")
 
-st.markdown('<div class="section-label">Visit details</div>', unsafe_allow_html=True)
-
 try:
     partner_locations = _universe_partner_locations()
 except Exception as exc:
@@ -710,6 +708,66 @@ if current_user["role"] == "partner":
     partner_locations = {
         code: partner_locations[code] for code in assigned_partner_codes
     }
+
+shop_suggestions: dict[str, tuple[str, str, str, dict[str, str]]] = {}
+for suggestion_partner, locations in partner_locations.items():
+    for suggestion_area, sub_locations in locations.items():
+        for suggestion_sub_area, shops in sub_locations.items():
+            for shop in shops:
+                suggestion_id = "\x1f".join(
+                    (
+                        suggestion_partner,
+                        suggestion_area,
+                        suggestion_sub_area,
+                        shop["selection_id"],
+                    )
+                )
+                shop_suggestions[suggestion_id] = (
+                    suggestion_partner,
+                    suggestion_area,
+                    suggestion_sub_area,
+                    shop,
+                )
+
+suggestion_key = form_key("shop_search_suggestion")
+
+
+def apply_shop_suggestion() -> None:
+    suggestion_id = st.session_state.get(suggestion_key)
+    if not suggestion_id or suggestion_id not in shop_suggestions:
+        return
+    suggested_partner, suggested_area, suggested_sub_area, suggested_shop = (
+        shop_suggestions[suggestion_id]
+    )
+    st.session_state[form_key("partner_name")] = suggested_partner
+    st.session_state[form_key(f"area_{suggested_partner}")] = suggested_area
+    st.session_state[
+        form_key(f"sub_area_{suggested_partner}_{suggested_area}")
+    ] = suggested_sub_area
+    st.session_state[
+        form_key(
+            f"shop_name_{suggested_partner}_{suggested_area}_"
+            f"{suggested_sub_area}"
+        )
+    ] = suggested_shop["selection_id"]
+
+
+st.selectbox(
+    "",
+    options=list(shop_suggestions),
+    index=None,
+    placeholder="Type to search for a shop",
+    format_func=lambda suggestion_id: (
+        f"{shop_suggestions[suggestion_id][3]['store_name']} "
+        f"[{shop_suggestions[suggestion_id][3]['store_code']}] — "
+        f"{shop_suggestions[suggestion_id][1]}, "
+        f"{shop_suggestions[suggestion_id][2]}"
+    ),
+    key=suggestion_key,
+    on_change=apply_shop_suggestion,
+)
+
+st.markdown('<div class="section-label">Visit details</div>', unsafe_allow_html=True)
 
 with st.container(border=True, key="market_visit_card"):
     partner_col, area_col = st.columns(2)
@@ -759,6 +817,14 @@ with st.container(border=True, key="market_visit_card"):
         .get(sub_area, [])
     )
     shops_by_id = {shop["selection_id"]: shop for shop in shop_records}
+    shop_selection_key = form_key(
+        f"shop_name_{partner_code or 'none'}_{area or 'none'}_"
+        f"{sub_area or 'none'}"
+    )
+    saved_shop_selection = st.session_state.get(shop_selection_key, "")
+    if saved_shop_selection and saved_shop_selection not in shops_by_id:
+        st.session_state[shop_selection_key] = ""
+
     selected_shop_id = st.selectbox(
         "Shop Name *",
         options=[""] + list(shops_by_id),
@@ -772,11 +838,8 @@ with st.container(border=True, key="market_visit_card"):
             if selection_id
             else "Select shop"
         ),
-        key=form_key(
-            f"shop_name_{partner_code or 'none'}_{area or 'none'}_"
-            f"{sub_area or 'none'}"
-        ),
-        disabled=not sub_area,
+        key=shop_selection_key,
+        disabled=not sub_area or not shops_by_id,
     )
     selected_shop = shops_by_id.get(selected_shop_id, {})
     shop_name = selected_shop.get("store_name", "")
