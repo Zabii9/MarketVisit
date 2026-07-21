@@ -48,7 +48,13 @@ BASE_HEADERS = [
     "Top Brands Available",
     "Remarks",
 ]
-HEADERS = BASE_HEADERS + ["Store Code", "Username"]
+LEGACY_HEADERS = BASE_HEADERS + ["Store Code", "Username"]
+PAYMENT_HEADERS = [
+    "Payment Gateways Available",
+    "QR Code Payment Available",
+    "QR Monthly Turnover",
+]
+HEADERS = LEGACY_HEADERS + PAYMENT_HEADERS
 
 st.set_page_config(
     page_title="Daily Market Visit",
@@ -270,16 +276,26 @@ def _worksheet(credentials: Credentials) -> gspread.Worksheet:
         worksheet.freeze(rows=1)
     elif first_row == BASE_HEADERS:
         worksheet.update(
-            range_name=f"N1:O1", values=[["Store Code", "Username"]]
+            range_name="N1:R1",
+            values=[["Store Code", "Username", *PAYMENT_HEADERS]],
         )
     elif first_row == BASE_HEADERS + ["Store Code"]:
-        worksheet.update_cell(1, len(HEADERS), "Username")
+        worksheet.update(
+            range_name="O1:R1", values=[["Username", *PAYMENT_HEADERS]]
+        )
     elif first_row == BASE_HEADERS + ["Visit Date"]:
         worksheet.insert_cols(
-            [["Store Code", "Username"]], col=len(BASE_HEADERS) + 1
+            [["Store Code", "Username", *PAYMENT_HEADERS]],
+            col=len(BASE_HEADERS) + 1,
         )
     elif first_row == BASE_HEADERS + ["Store Code", "Visit Date"]:
-        worksheet.insert_cols([["Username"]], col=len(HEADERS))
+        worksheet.insert_cols(
+            [["Username", *PAYMENT_HEADERS]], col=len(BASE_HEADERS) + 2
+        )
+    elif first_row == LEGACY_HEADERS:
+        worksheet.update(range_name="P1:R1", values=[PAYMENT_HEADERS])
+    elif first_row == LEGACY_HEADERS + ["Visit Date"]:
+        worksheet.insert_cols([PAYMENT_HEADERS], col=len(LEGACY_HEADERS) + 1)
     elif first_row == HEADERS + ["Visit Date"]:
         # Accept sheets briefly created with the now-removed Visit Date column.
         pass
@@ -456,6 +472,9 @@ def _user_submissions(username: str) -> list[dict[str, Any]]:
             "Booker Name": record.get("Booker Name", ""),
             "Monthly Sales": record.get("Shop Avg Monthly Sales", ""),
             "Photo": "Available" if record.get("Shop Picture + Selfie") else "",
+            "Payment Gateways": record.get("Payment Gateways Available", ""),
+            "QR Payment": record.get("QR Code Payment Available", ""),
+            "QR Monthly Turnover": record.get("QR Monthly Turnover", ""),
             "Remarks": record.get("Remarks", ""),
         }
         for record in owned_records
@@ -865,6 +884,37 @@ with st.container(border=True, key="market_visit_card"):
         placeholder="Select all available brands",
         key=form_key("top_brands"),
     )
+
+    payment_gateways = st.multiselect(
+        "Which Payment Gateway Is Available? *",
+        ["JazzCash", "EasPaisa", "Other"],
+        placeholder="Select all available payment gateways",
+        key=form_key("payment_gateways"),
+    )
+    other_payment_gateway = ""
+    if "Other" in payment_gateways:
+        other_payment_gateway = st.text_input(
+            "Other Payment Gateway *",
+            placeholder="Enter payment gateway name",
+            key=form_key("other_payment_gateway"),
+        )
+
+    qr_payment_available = st.radio(
+        "Is QR Code Payment Facility Available? *",
+        ["No", "Yes"],
+        horizontal=True,
+        key=form_key("qr_payment_available"),
+    )
+    qr_monthly_turnover = 0
+    if qr_payment_available == "Yes":
+        qr_monthly_turnover = st.number_input(
+            "QR Payment Monthly Turnover (PKR) *",
+            min_value=0,
+            step=1000,
+            format="%d",
+            key=form_key("qr_monthly_turnover"),
+        )
+
     remarks = st.text_area(
         "Remarks",
         placeholder="Add visibility, stock, pricing, retailer feedback, or follow-up notes…",
@@ -898,6 +948,12 @@ if submitted:
         errors.append("Select at least one top brand, or TBA.")
     if "Other" in competitor_brands and not competitor_other.strip():
         errors.append("Enter the other competitor brand name.")
+    if not payment_gateways:
+        errors.append("Select at least one available payment gateway.")
+    if "Other" in payment_gateways and not other_payment_gateway.strip():
+        errors.append("Enter the other payment gateway name.")
+    if qr_payment_available == "Yes" and qr_monthly_turnover <= 0:
+        errors.append("QR Payment Monthly Turnover must be greater than zero.")
 
     if errors:
         st.error("Please fix the following:\n\n- " + "\n- ".join(errors))
@@ -907,6 +963,11 @@ if submitted:
         competitors = [brand for brand in competitor_brands if brand != "Other"]
         if competitor_other.strip():
             competitors.append(competitor_other.strip())
+        saved_payment_gateways = [
+            gateway for gateway in payment_gateways if gateway != "Other"
+        ]
+        if other_payment_gateway.strip():
+            saved_payment_gateways.append(other_payment_gateway.strip())
 
         try:
             with st.spinner("Saving your market visit…"):
@@ -928,6 +989,9 @@ if submitted:
                     remarks.strip(),
                     selected_shop.get("store_code", ""),
                     current_user["username"],
+                    ", ".join(saved_payment_gateways),
+                    qr_payment_available,
+                    int(qr_monthly_turnover) if qr_payment_available == "Yes" else 0,
                 ]
                 _worksheet(credentials).append_row(row, value_input_option="USER_ENTERED")
                 _last_recorded_visit.clear()
@@ -969,11 +1033,17 @@ try:
                 "Booker Name",
                 "Monthly Sales",
                 "Photo",
+                "Payment Gateways",
+                "QR Payment",
+                "QR Monthly Turnover",
                 "Remarks",
             ],
             column_config={
                 "Monthly Sales": st.column_config.NumberColumn(
                     "Monthly Sales", format="%d"
+                ),
+                "QR Monthly Turnover": st.column_config.NumberColumn(
+                    "QR Monthly Turnover", format="%d"
                 ),
             },
         )
