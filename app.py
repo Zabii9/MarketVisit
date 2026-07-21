@@ -21,6 +21,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
+from location_submit import location_submit_button
+
 
 SHEET_ID = "1Mt-Y09-azOOQ9r6nqELCQbeoeNtE-Z3JJaJ5WiMzP0A"
 WORKSHEET_NAME = "Dump"
@@ -54,7 +56,13 @@ PAYMENT_HEADERS = [
     "QR Code Payment Available",
     "QR Monthly Turnover",
 ]
-HEADERS = LEGACY_HEADERS + PAYMENT_HEADERS
+FORM_HEADERS = LEGACY_HEADERS + PAYMENT_HEADERS
+LOCATION_HEADERS = [
+    "User Latitude",
+    "User Longitude",
+    "Location Accuracy (m)",
+]
+HEADERS = FORM_HEADERS + LOCATION_HEADERS
 
 st.set_page_config(
     page_title="Daily Market Visit",
@@ -276,26 +284,39 @@ def _worksheet(credentials: Credentials) -> gspread.Worksheet:
         worksheet.freeze(rows=1)
     elif first_row == BASE_HEADERS:
         worksheet.update(
-            range_name="N1:R1",
-            values=[["Store Code", "Username", *PAYMENT_HEADERS]],
+            range_name="N1:U1",
+            values=[
+                ["Store Code", "Username", *PAYMENT_HEADERS, *LOCATION_HEADERS]
+            ],
         )
     elif first_row == BASE_HEADERS + ["Store Code"]:
         worksheet.update(
-            range_name="O1:R1", values=[["Username", *PAYMENT_HEADERS]]
+            range_name="O1:U1",
+            values=[["Username", *PAYMENT_HEADERS, *LOCATION_HEADERS]],
         )
     elif first_row == BASE_HEADERS + ["Visit Date"]:
         worksheet.insert_cols(
-            [["Store Code", "Username", *PAYMENT_HEADERS]],
+            [["Store Code", "Username", *PAYMENT_HEADERS, *LOCATION_HEADERS]],
             col=len(BASE_HEADERS) + 1,
         )
     elif first_row == BASE_HEADERS + ["Store Code", "Visit Date"]:
         worksheet.insert_cols(
-            [["Username", *PAYMENT_HEADERS]], col=len(BASE_HEADERS) + 2
+            [["Username", *PAYMENT_HEADERS, *LOCATION_HEADERS]],
+            col=len(BASE_HEADERS) + 2,
         )
     elif first_row == LEGACY_HEADERS:
-        worksheet.update(range_name="P1:R1", values=[PAYMENT_HEADERS])
+        worksheet.update(
+            range_name="P1:U1", values=[[*PAYMENT_HEADERS, *LOCATION_HEADERS]]
+        )
     elif first_row == LEGACY_HEADERS + ["Visit Date"]:
-        worksheet.insert_cols([PAYMENT_HEADERS], col=len(LEGACY_HEADERS) + 1)
+        worksheet.insert_cols(
+            [[*PAYMENT_HEADERS, *LOCATION_HEADERS]],
+            col=len(LEGACY_HEADERS) + 1,
+        )
+    elif first_row == FORM_HEADERS:
+        worksheet.update(range_name="S1:U1", values=[LOCATION_HEADERS])
+    elif first_row == FORM_HEADERS + ["Visit Date"]:
+        worksheet.insert_cols([LOCATION_HEADERS], col=len(FORM_HEADERS) + 1)
     elif first_row == HEADERS + ["Visit Date"]:
         # Accept sheets briefly created with the now-removed Visit Date column.
         pass
@@ -475,6 +496,9 @@ def _user_submissions(username: str) -> list[dict[str, Any]]:
             "Payment Gateways": record.get("Payment Gateways Available", ""),
             "QR Payment": record.get("QR Code Payment Available", ""),
             "QR Monthly Turnover": record.get("QR Monthly Turnover", ""),
+            "User Latitude": record.get("User Latitude", ""),
+            "User Longitude": record.get("User Longitude", ""),
+            "Location Accuracy (m)": record.get("Location Accuracy (m)", ""),
             "Remarks": record.get("Remarks", ""),
         }
         for record in owned_records
@@ -932,7 +956,7 @@ with st.container(border=True, key="market_visit_card"):
         )
 
     competitor_brands = st.multiselect(
-        "Competitor Brand Availability",
+        "Competitor Brand Availability *",
         ["Milkpak", "Dairy Omung", "Haleeb", "Dostea", "Good Milk", "Other"],
         placeholder="Select all available competitor brands",
         key=form_key("competitor_brands"),
@@ -950,7 +974,7 @@ with st.container(border=True, key="market_visit_card"):
 
     payment_gateways = st.multiselect(
         "Which Payment Gateway Is Available? *",
-        ["JazzCash", "EasPaisa", "Other"],
+        ["JazzCash", "EasPaisa","NayaPay","SadaPay", "Other"],
         placeholder="Select all available payment gateways",
         key=form_key("payment_gateways"),
     )
@@ -971,7 +995,7 @@ with st.container(border=True, key="market_visit_card"):
     qr_monthly_turnover = 0
     if qr_payment_available == "Yes":
         qr_monthly_turnover = st.number_input(
-            "QR Payment Monthly Turnover (PKR) *",
+            "Digital Payment Monthly Turnover (PKR) *",
             min_value=0,
             step=1000,
             format="%d",
@@ -985,12 +1009,37 @@ with st.container(border=True, key="market_visit_card"):
         key=form_key("remarks"),
     )
 
-    submitted = st.button(
-        "Submit Market Visit",
-        type="primary",
-        use_container_width=True,
-        key=form_key("submit"),
+    location_result = location_submit_button(
+        label="Submit Market Visit",
+        key=form_key("submit_with_location"),
     )
+    location_data = location_result if isinstance(location_result, dict) else {}
+    user_latitude = location_data.get("latitude")
+    user_longitude = location_data.get("longitude")
+    location_accuracy = location_data.get("accuracy")
+    location_error = str(location_data.get("error", "")).strip()
+    submitted = False
+
+    if location_error:
+        st.error(location_error)
+    if user_latitude is not None and user_longitude is not None:
+        location_event_id = str(location_data.get("event_id", ""))
+        accuracy_text = (
+            f" · accuracy about {float(location_accuracy):.0f} m"
+            if location_accuracy is not None
+            else ""
+        )
+        st.success(
+            f"Location captured: {float(user_latitude):.6f}, "
+            f"{float(user_longitude):.6f}{accuracy_text}"
+        )
+        if (
+            location_event_id
+            and st.session_state.get("_processed_location_submit_event")
+            != location_event_id
+        ):
+            st.session_state["_processed_location_submit_event"] = location_event_id
+            submitted = True
 
 
 if submitted:
@@ -1017,6 +1066,8 @@ if submitted:
         errors.append("Enter the other payment gateway name.")
     if qr_payment_available == "Yes" and qr_monthly_turnover <= 0:
         errors.append("QR Payment Monthly Turnover must be greater than zero.")
+    if user_latitude is None or user_longitude is None:
+        errors.append("Current location could not be captured. Please try again.")
 
     if errors:
         st.error("Please fix the following:\n\n- " + "\n- ".join(errors))
@@ -1055,6 +1106,9 @@ if submitted:
                     ", ".join(saved_payment_gateways),
                     qr_payment_available,
                     int(qr_monthly_turnover) if qr_payment_available == "Yes" else 0,
+                    float(user_latitude),
+                    float(user_longitude),
+                    float(location_accuracy) if location_accuracy is not None else "",
                 ]
                 _worksheet(credentials).append_row(row, value_input_option="USER_ENTERED")
                 _last_recorded_visit.clear()
@@ -1099,6 +1153,9 @@ try:
                 "Payment Gateways",
                 "QR Payment",
                 "QR Monthly Turnover",
+                "User Latitude",
+                "User Longitude",
+                "Location Accuracy (m)",
                 "Remarks",
             ],
             column_config={
@@ -1107,6 +1164,15 @@ try:
                 ),
                 "QR Monthly Turnover": st.column_config.NumberColumn(
                     "QR Monthly Turnover", format="%d"
+                ),
+                "User Latitude": st.column_config.NumberColumn(
+                    "User Latitude", format="%.6f"
+                ),
+                "User Longitude": st.column_config.NumberColumn(
+                    "User Longitude", format="%.6f"
+                ),
+                "Location Accuracy (m)": st.column_config.NumberColumn(
+                    "Location Accuracy (m)", format="%.0f"
                 ),
             },
         )

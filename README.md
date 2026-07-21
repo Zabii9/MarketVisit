@@ -25,7 +25,11 @@ key in Streamlit secrets. Never put a service-account JSON file in this reposito
 
 The app creates this header row when `Dump` is empty:
 
-`Submission ID, Submitted At, Partner Name, Shop Name, Shop Picture + Selfie, Area, Sub Area, Booker Name, Shop Avg Monthly Sales, Last Order Booker Visit, Competitor Brands Available, Top Brands Available, Remarks, Store Code, Username, Payment Gateways Available, QR Code Payment Available, QR Monthly Turnover`
+`Submission ID, Submitted At, Partner Name, Shop Name, Shop Picture + Selfie, Area, Sub Area, Booker Name, Shop Avg Monthly Sales, Last Order Booker Visit, Competitor Brands Available, Top Brands Available, Remarks, Store Code, Username, Payment Gateways Available, QR Code Payment Available, QR Monthly Turnover, User Latitude, User Longitude, Location Accuracy (m)`
+
+Clicking **Submit Market Visit** requests browser location access and saves the
+form only after coordinates are returned. Browser geolocation requires HTTPS in
+production (localhost is also allowed by modern browsers).
 
 If the sheet already contains content with different headers, move or clear it
 before the first submission.

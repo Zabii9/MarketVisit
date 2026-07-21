@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: transparent; font-family: sans-serif; }
+      button {
+        width: 100%; min-height: 48px; padding: 10px 16px;
+        border: 0; border-radius: 10px; cursor: pointer;
+        color: #fff; background: #ef210a; font-size: 16px; font-weight: 700;
+      }
+      button:hover { background: rgb(243, 62, 42); }
+      button:disabled { cursor: wait; opacity: .72; }
+    </style>
+  </head>
+  <body>
+    <button id="submit" type="button">Submit Market Visit</button>
+    <script>
+      const button = document.getElementById("submit");
+
+      function send(type, extra = {}) {
+        window.parent.postMessage(
+          { isStreamlitMessage: true, type, ...extra },
+          "*"
+        );
+      }
+
+      function finish(value) {
+        send("streamlit:setComponentValue", {
+          value,
+          dataType: "json"
+        });
+      }
+
+      window.addEventListener("message", (event) => {
+        if (event.data?.type !== "streamlit:render") return;
+        button.disabled = false;
+        button.textContent = event.data.args?.label || "Submit Market Visit";
+        send("streamlit:setFrameHeight", { height: 52 });
+      });
+
+      button.addEventListener("click", () => {
+        const eventId = `${Date.now()}-${Math.random()}`;
+        if (!navigator.geolocation) {
+          finish({ event_id: eventId, error: "Location is not supported by this browser." });
+          return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Getting location…";
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            finish({
+              event_id: eventId,
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy
+            });
+          },
+          (error) => {
+            const message = error.code === 1
+              ? "Location permission was denied. Allow location access and try again."
+              : error.code === 2
+                ? "Your location is currently unavailable. Please try again."
+                : "Location request timed out. Please try again.";
+            finish({ event_id: eventId, error: message });
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+      });
+
+      send("streamlit:componentReady", { apiVersion: 1 });
+      send("streamlit:setFrameHeight", { height: 52 });
+    </script>
+  </body>
+</html>
