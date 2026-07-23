@@ -992,15 +992,13 @@ with st.container(border=True, key="market_visit_card"):
         horizontal=True,
         key=form_key("qr_payment_available"),
     )
-    qr_monthly_turnover = 0
-    if qr_payment_available == "Yes":
-        qr_monthly_turnover = st.number_input(
-            "Digital Payment Monthly Turnover (PKR) *",
-            min_value=0,
-            step=1000,
-            format="%d",
-            key=form_key("qr_monthly_turnover"),
-        )
+    qr_monthly_turnover = st.number_input(
+        "Digital Payment Monthly Turnover (PKR)",
+        min_value=0,
+        step=1000,
+        format="%d",
+        key=form_key("qr_monthly_turnover"),
+    )
 
     remarks = st.text_area(
         "Remarks",
@@ -1064,8 +1062,8 @@ if submitted:
         errors.append("Select at least one available payment gateway.")
     if "Other" in payment_gateways and not other_payment_gateway.strip():
         errors.append("Enter the other payment gateway name.")
-    if qr_payment_available == "Yes" and qr_monthly_turnover <= 0:
-        errors.append("QR Payment Monthly Turnover must be greater than zero.")
+    if qr_monthly_turnover < 0:
+        errors.append("QR Monthly Turnover must be a non-negative value.")
     if user_latitude is None or user_longitude is None:
         errors.append("Current location could not be captured. Please try again.")
 
@@ -1105,7 +1103,7 @@ if submitted:
                     current_user["username"],
                     ", ".join(saved_payment_gateways),
                     qr_payment_available,
-                    int(qr_monthly_turnover) if qr_payment_available == "Yes" else 0,
+                    int(qr_monthly_turnover),
                     float(user_latitude),
                     float(user_longitude),
                     float(location_accuracy) if location_accuracy is not None else "",
