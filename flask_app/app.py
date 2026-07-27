@@ -199,14 +199,18 @@ def _credentials() -> Credentials:
     )
 
 
-USERS_FILE = Path("users_data.json")
+def _users_file_path() -> Path:
+    if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        return Path("/tmp/users_data.json")
+    return Path("users_data.json")
 
 
 def _get_all_users() -> dict[str, dict[str, Any]]:
-    if USERS_FILE.is_file():
+    ufile = _users_file_path()
+    if ufile.is_file():
         try:
             import json
-            with open(USERS_FILE, "r", encoding="utf-8") as f:
+            with open(ufile, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
@@ -220,9 +224,14 @@ def _get_all_users() -> dict[str, dict[str, Any]]:
 
 
 def _save_all_users(users_dict: dict[str, dict[str, Any]]) -> None:
-    import json
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users_dict, f, indent=2)
+    ufile = _users_file_path()
+    try:
+        import json
+        ufile.parent.mkdir(parents=True, exist_ok=True)
+        with open(ufile, "w", encoding="utf-8") as f:
+            json.dump(users_dict, f, indent=2)
+    except Exception as exc:
+        print("Warning: Could not save users file:", exc)
 
 
 def _configured_users() -> dict[str, dict[str, Any]]:
@@ -750,13 +759,6 @@ def api_delete_user():
     return jsonify({"ok": True, "message": f"User '{username}' deleted successfully."})
 
 
-def _preload_universe_cache():
-    try:
-        _universe_partner_locations()
-    except Exception:
-        pass
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "_authenticated_user" in session:
@@ -769,7 +771,6 @@ def login():
         user = _authenticate(username, password)
         if user:
             session["_authenticated_user"] = user
-            threading.Thread(target=_preload_universe_cache, daemon=True).start()
             return redirect(url_for("index"))
         else:
             error = "Invalid username or password."
