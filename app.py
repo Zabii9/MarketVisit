@@ -16,12 +16,14 @@ from zoneinfo import ZoneInfo
 import gspread
 import requests
 import streamlit as st
+from PIL import Image, ImageOps
+from streamlit_js_eval import get_geolocation
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
-
+ 
 
 SHEET_ID = "1Mt-Y09-azOOQ9r6nqELCQbeoeNtE-Z3JJaJ5WiMzP0A"
 WORKSHEET_NAME = "Dump"
@@ -130,6 +132,12 @@ st.markdown(
       [data-testid="stNumberInputContainer"] input {
         background-color: #ffffff !important;
         border: none !important;
+      }
+      /* Un-mirror camera input video preview and taken image */
+      [data-testid="stCameraInput"] video,
+      [data-testid="stCameraInput"] img,
+      [data-testid="stCameraInput"] canvas {
+        transform: scaleX(-1) !important;
       }
       .shop-details {
         margin: .35rem 0 1rem; padding: 1rem 1.1rem; border-radius: 12px;
@@ -656,7 +664,15 @@ def _submission_photo_bytes(photo_source: str) -> tuple[bytes, str, str] | None:
 def _save_photo(uploaded_file: Any, submission_id: str, credentials: Credentials) -> str:
     extension = Path(uploaded_file.name).suffix.lower() or ".jpg"
     filename = f"{submission_id}{extension}"
-    content = uploaded_file.getvalue()
+    try:
+        img = Image.open(io.BytesIO(uploaded_file.getvalue()))
+        mirrored_img = ImageOps.mirror(img)
+        buf = io.BytesIO()
+        img_format = "PNG" if extension == ".png" else "JPEG"
+        mirrored_img.save(buf, format=img_format, quality=90)
+        content = buf.getvalue()
+    except Exception:
+        content = uploaded_file.getvalue()
     apps_script_url = _secret("apps_script_upload_url", "")
     apps_script_token = _secret("apps_script_upload_token", "")
     drive_folder_id = _secret("drive_folder_id", "")
@@ -1097,11 +1113,13 @@ with st.container(border=True, key="market_visit_card"):
         key=form_key("remarks"),
     )
 
-    submitted = st.button("Submit Market Visit", key=form_key("submit_with_location"), use_container_width=True)
-    user_latitude = ""
-    user_longitude = ""
-    location_accuracy = ""
+    geo_key = form_key(f"user_geo_{shop_name or 'none'}")
+    try:
+        user_loc = get_geolocation(component_key=geo_key)
+    except Exception:
+        user_loc = None
 
+    submitted = st.button("Submit Market Visit", key=form_key("submit_with_location"), use_container_width=True)
 
 if submitted:
     errors: list[str] = []
@@ -1142,6 +1160,14 @@ if submitted:
         if other_payment_gateway.strip():
             saved_payment_gateways.append(other_payment_gateway.strip())
 
+        user_latitude = ""
+        user_longitude = ""
+        location_accuracy = ""
+        if user_loc and "coords" in user_loc:
+            user_latitude = str(user_loc["coords"].get("latitude", ""))
+            user_longitude = str(user_loc["coords"].get("longitude", ""))
+            location_accuracy = str(user_loc["coords"].get("accuracy", ""))
+
         try:
             with st.spinner("Saving your market visit…"):
                 credentials = _credentials()
@@ -1165,9 +1191,9 @@ if submitted:
                     ", ".join(saved_payment_gateways),
                     qr_payment_available,
                     int(qr_monthly_turnover),
-                    "",
-                    "",
-                    "",
+                    user_latitude,
+                    user_longitude,
+                    location_accuracy,
                 ]
                 _worksheet(credentials).append_row(row, value_input_option="USER_ENTERED")
                 _last_recorded_visit.clear()
