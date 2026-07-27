@@ -41,6 +41,13 @@ COMPETITOR_BRANDS_BY_PARTNER = {
     "Tapal": ["Meezan", "Lipton", "Vital", "Other"],
 }
 
+TOP_BRANDS_BY_PARTNER = {
+    "D70002202": ["Olper's Milk", "Tarang", "TBA", "Others"],
+    "D70002246": ["Olper's Milk", "Tarang", "TBA", "Others"],
+    "Tapal": ["Tezdum", "Tapal", "Other"],
+    "D0573": ["Oreo", "Gala", "Prince", "Other"],
+}
+
 BASE_HEADERS = [
     "Submission ID",
     "Submitted At",
@@ -163,12 +170,20 @@ st.markdown(
         .st-key-header_account { top: 6.55rem; right: 1.5rem; max-width: 16rem; }
         .st-key-header_logout button { padding: .3rem .65rem; }
       }
-      div[data-testid="stFormSubmitButton"] button {
+      div[data-testid="stFormSubmitButton"] button,
+      .stButton button,
+      div.stButton > button {
         width: 100%; border-radius: 10px; min-height: 3rem; font-weight: 700;
-        background: #1f5c43; color: white; border: none;
+        background-color: #c72b29 !important;
+        color: white !important;
+        border: none !important;
       }
-      div[data-testid="stFormSubmitButton"] button:hover {
-        background: #174a35; color: white; border: none;
+      div[data-testid="stFormSubmitButton"] button:hover,
+      .stButton button:hover,
+      div.stButton > button:hover {
+        background-color: #9b1f1d !important;
+        color: white !important;
+        border: none !important;
       }
       .section-label { color: #1f5c43; font-weight: 750; margin: .2rem 0 .4rem; }
       .footnote { text-align: center; color: #68756d; font-size: .82rem; margin-top: 1rem; }
@@ -1034,9 +1049,10 @@ with st.container(border=True, key="market_visit_card"):
             key=form_key("competitor_other"),
         )
 
+    top_brand_options = TOP_BRANDS_BY_PARTNER.get(partner_code, ["Other"])
     top_brands = st.multiselect(
         "Top Brand Availability *",
-        ["Olper's Milk", "Tarang", "TBA","Others"],
+        top_brand_options,
         placeholder="Select all available brands",
         key=form_key("top_brands"),
     )
