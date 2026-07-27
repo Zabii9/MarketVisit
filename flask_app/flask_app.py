@@ -8,6 +8,7 @@ import io
 import os
 import re
 import sys
+import time
 from datetime import date, datetime
 from functools import wraps
 from pathlib import Path
@@ -98,18 +99,51 @@ HEADERS = FORM_HEADERS + LOCATION_HEADERS
 
 
 def _load_secrets() -> dict[str, Any]:
+    secrets_data: dict[str, Any] = {}
     secrets_paths = [
         Path(".streamlit/secrets.toml"),
         Path("secrets.toml"),
+        Path("../.streamlit/secrets.toml"),
+        Path("../secrets.toml"),
     ]
     for path in secrets_paths:
         if path.is_file():
             try:
                 with open(path, "rb") as f:
-                    return tomllib.load(f)
+                    secrets_data.update(tomllib.load(f))
+                    break
             except Exception:
                 pass
-    return {}
+
+    if not secrets_data:
+        secrets_env = os.getenv("SECRETS_TOML")
+        if secrets_env:
+            try:
+                secrets_data.update(tomllib.loads(secrets_env))
+            except Exception:
+                pass
+
+    # Individual environment variables fallback
+    if "gcp_service_account" not in secrets_data and os.getenv("GCP_SERVICE_ACCOUNT"):
+        try:
+            import json
+            secrets_data["gcp_service_account"] = json.loads(os.getenv("GCP_SERVICE_ACCOUNT", "{}"))
+        except Exception:
+            pass
+
+    if "users" not in secrets_data and os.getenv("USERS_JSON"):
+        try:
+            import json
+            secrets_data["users"] = json.loads(os.getenv("USERS_JSON", "{}"))
+        except Exception:
+            pass
+
+    for key in ["apps_script_upload_url", "apps_script_upload_token", "drive_folder_id", "flask_secret_key"]:
+        env_key = key.upper()
+        if key not in secrets_data and os.getenv(env_key):
+            secrets_data[key] = os.getenv(env_key)
+
+    return secrets_data
 
 
 SECRETS = _load_secrets()
@@ -245,8 +279,6 @@ def _worksheet(credentials: Credentials) -> gspread.Worksheet:
         )
     return worksheet
 
-
-import time
 
 _UNIVERSE_CACHE: tuple[float, Any] = (0.0, None)
 
