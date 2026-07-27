@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+
+{% block title %}Sign in - Daily Market Visit{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>📍 Daily Market Visit</h1>
+    <p>Record shop details, market observations, and your visit photo.</p>
+</div>
+
+<div class="card" style="max-width: 480px; margin: 0 auto;">
+    <h2 style="font-size: 1.3rem; margin-bottom: 1.2rem; color: var(--accent-green);">Sign in</h2>
+    
+    {% if error %}
+    <div class="alert alert-danger">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/login">
+        <div class="form-group">
+            <label class="form-label" for="username">Username</label>
+            <input type="text" id="username" name="username" class="form-control" placeholder="Enter username" required autocomplete="username" autofocus>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label class="form-label" for="password">Password</label>
+            <input type="password" id="password" name="password" class="form-control" placeholder="Enter password" required autocomplete="current-password">
+        </div>
+
+        <button type="submit" class="btn-submit">
+            Sign in
+        </button>
+    </form>
+</div>
+{% endblock %}

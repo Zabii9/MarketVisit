@@ -1,0 +1,768 @@
+{% extends "layout.html" %}
+
+{% block title %}Daily Market Visit{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>📍 Daily Market Visit</h1>
+    <p>Record shop details, market observations, and your visit photo.</p>
+    <div class="user-badge">
+        <span>Signed in as <strong>{{ user.display_name }}</strong> ({{ "Administrator" if user.role == "admin" else "Partner" }})</span>
+        <a href="/logout" class="logout-link">Sign out</a>
+    </div>
+</div>
+
+<div id="flashAlert"></div>
+
+<!-- Success Popup Modal -->
+<div class="modal-overlay" id="successModal">
+    <div class="modal-card">
+        <div class="modal-icon">🎉</div>
+        <div class="modal-title">Market Visit Saved!</div>
+        <div class="modal-message" id="modalMessage">
+            Market visit details and selfie photo saved successfully.
+        </div>
+        <button type="button" class="btn-submit" onclick="closeSuccessModal()">Done</button>
+    </div>
+</div>
+
+<!-- Shop Search Autocomplete -->
+<div class="form-group search-container" style="margin-bottom: 1.5rem;">
+    <label class="form-label" for="shopSearch">🔍 Search Shop</label>
+    <input type="text" id="shopSearch" class="form-control" placeholder="Type shop name or store code to search…" autocomplete="off">
+    <div id="searchResults" class="search-dropdown"></div>
+</div>
+
+<form id="visitForm" enctype="multipart/form-data">
+    <div class="section-label">Visit details</div>
+    <div class="card">
+        <div class="grid-2">
+            <div class="form-group">
+                <label class="form-label" for="partnerCode">Partner Name *</label>
+                <select id="partnerCode" name="partner_code" class="form-select" required>
+                    <option value="">Select partner</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="areaSelect">Area *</label>
+                <select id="areaSelect" name="area" class="form-select" disabled required>
+                    <option value="">Select area</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label class="form-label" for="subAreaSelect">Sub Area *</label>
+                <select id="subAreaSelect" name="sub_area" class="form-select" disabled required>
+                    <option value="">Select sub area</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="bookerName">Booker Name *</label>
+                <input type="text" id="bookerName" name="booker_name" class="form-control" placeholder="Enter booker name" required>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="shopSelect">Shop Name *</label>
+            <select id="shopSelect" name="shop_id" class="form-select" disabled required>
+                <option value="">Select shop</option>
+            </select>
+        </div>
+
+        <!-- Selected Shop Details Card -->
+        <div id="shopDetailsContainer" style="display: none; margin-top: 1rem; padding: 1.1rem; border-radius: 12px; background: var(--shop-details-bg); border: 1px solid var(--border-color);">
+            <div style="color: var(--accent-green); font-weight: 700; margin-bottom: 0.75rem; font-size: 0.95rem;">
+                Selected shop details
+            </div>
+            <div class="grid-2" style="font-size: 0.88rem; gap: 0.75rem 1.2rem;">
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.76rem; text-transform: uppercase;">Store Name</div>
+                    <div id="detailStoreName" style="font-weight: 600;">—</div>
+                </div>
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.76rem; text-transform: uppercase;">Store Code</div>
+                    <div id="detailStoreCode" style="font-weight: 600;">—</div>
+                </div>
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.76rem; text-transform: uppercase;">Channel Classification</div>
+                    <div id="detailChannel" style="font-weight: 600;">—</div>
+                </div>
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 0.76rem; text-transform: uppercase;">Owner / Contact</div>
+                    <div id="detailOwner" style="font-weight: 600;">—</div>
+                </div>
+                <div style="grid-column: 1 / -1;">
+                    <div style="color: var(--text-secondary); font-size: 0.76rem; text-transform: uppercase;">Address</div>
+                    <div id="detailAddress" style="font-weight: 600;">—</div>
+                </div>
+                <div id="detailMapContainer" style="grid-column: 1 / -1; display: none;">
+                    <a id="detailMapLink" href="#" target="_blank" rel="noopener noreferrer" style="color: var(--accent-green); font-weight: 600; text-decoration: none;">Open in Google Maps ↗</a>
+                </div>
+            </div>
+            <div id="lastVisitBadge" style="margin-top: 0.85rem; padding: 0.5rem 0.85rem; border-radius: 8px; background: var(--badge-bg); color: var(--badge-text); font-size: 0.85rem; font-weight: 600; display: none;">
+                🗓️ Last visit date: <span id="lastVisitDateText"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-label">Market observations</div>
+    <div class="card">
+        <!-- Photo Input (Camera Only) -->
+        <div class="form-group">
+            <label class="form-label">Shop Picture + Selfie *</label>
+            <div style="margin-bottom: 0.5rem;">
+                <button type="button" class="btn-secondary" id="btnStartCamera">📷 Open Camera</button>
+            </div>
+            
+            <div id="cameraWrapper" style="display: none;">
+                <div class="camera-container">
+                    <video id="webcam" autoplay playsinline></video>
+                    <canvas id="photoCanvas" style="display: none;"></canvas>
+                    <img id="photoPreview" style="display: none;" alt="Captured photo preview">
+                    <div class="camera-controls">
+                        <button type="button" class="btn-action" id="btnCapturePhoto" style="width: auto; padding: 0.5rem 1.2rem;">📸 Capture Photo</button>
+                        <button type="button" class="btn-secondary" id="btnFlipPhoto" style="display: none; padding: 0.5rem 1rem;">↔️ Flip Photo</button>
+                        <button type="button" class="btn-secondary" id="btnRetakePhoto" style="display: none; padding: 0.5rem 1rem;">🔄 Retake Photo</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="monthlySales">Shop Avg Monthly Sales (PKR) *</label>
+            <input type="number" id="monthlySales" name="monthly_sales" class="form-control" min="0" step="1000" placeholder="Enter estimated monthly sales" required>
+        </div>
+
+        <div class="form-group">
+            <label class="chip-label" style="font-weight: 500;">
+                <input type="checkbox" id="visitedBefore" name="visited_before">
+                The order booker has visited this shop before
+            </label>
+        </div>
+
+        <div class="form-group" id="lastVisitGroup" style="display: none;">
+            <label class="form-label" for="lastVisit">Last Order Booker Visit *</label>
+            <input type="date" id="lastVisit" name="last_visit" class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Competitor Brand Availability *</label>
+            <div class="checkbox-group" id="competitorBrandsGroup"></div>
+            <div id="competitorOtherGroup" style="display: none; margin-top: 0.6rem;">
+                <input type="text" id="competitorOther" name="competitor_other" class="form-control" placeholder="Enter other competitor brand name">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Top Brand Availability *</label>
+            <div class="checkbox-group" id="topBrandsGroup"></div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Which Payment Gateway Is Available? *</label>
+            <div class="checkbox-group" id="paymentGatewaysGroup">
+                <label class="chip-label"><input type="checkbox" name="payment_gateways" value="JazzCash"> JazzCash</label>
+                <label class="chip-label"><input type="checkbox" name="payment_gateways" value="EasPaisa"> EasPaisa</label>
+                <label class="chip-label"><input type="checkbox" name="payment_gateways" value="NayaPay"> NayaPay</label>
+                <label class="chip-label"><input type="checkbox" name="payment_gateways" value="SadaPay"> SadaPay</label>
+                <label class="chip-label"><input type="checkbox" name="payment_gateways" value="Other" id="cbPaymentOther"> Other</label>
+            </div>
+            <div id="paymentOtherGroup" style="display: none; margin-top: 0.6rem;">
+                <input type="text" id="otherPaymentGateway" name="other_payment_gateway" class="form-control" placeholder="Enter other payment gateway name">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Is QR Code Payment Facility Available? *</label>
+            <div class="radio-group">
+                <label class="chip-label"><input type="radio" name="qr_payment_available" value="No" checked> No</label>
+                <label class="chip-label"><input type="radio" name="qr_payment_available" value="Yes"> Yes</label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="qrTurnover">Digital Payment Monthly Turnover (PKR)</label>
+            <input type="number" id="qrTurnover" name="qr_monthly_turnover" class="form-control" min="0" step="1000" value="0">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="remarks">Remarks</label>
+            <textarea id="remarks" name="remarks" class="form-control" rows="4" placeholder="Add visibility, stock, pricing, retailer feedback, or follow-up notes…"></textarea>
+        </div>
+
+        <!-- Hidden geolocation fields -->
+        <input type="hidden" id="userLat" name="user_latitude" value="">
+        <input type="hidden" id="userLng" name="user_longitude" value="">
+        <input type="hidden" id="userAcc" name="location_accuracy" value="">
+
+        <button type="submit" class="btn-submit" id="btnSubmitForm">
+            <span id="btnSubmitText">Submit Market Visit</span>
+            <span id="btnSpinner" class="spinner" style="display: none;"></span>
+        </button>
+    </div>
+</form>
+
+<div class="section-label">
+    <span>My submissions</span>
+    <button type="button" class="btn-secondary" id="btnRefreshSubmissions" style="padding: 0.35rem 0.8rem; font-size: 0.82rem;">Refresh</button>
+</div>
+
+<div class="card" style="padding: 1.2rem; overflow-x: auto;">
+    <div id="submissionsContainer">
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">Loading submissions…</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const PARTNER_NAME_BY_CODE = {{ PARTNER_NAME_BY_CODE | tojson }};
+    const COMPETITOR_BRANDS_BY_PARTNER = {{ COMPETITOR_BRANDS_BY_PARTNER | tojson }};
+    const TOP_BRANDS_BY_PARTNER = {{ TOP_BRANDS_BY_PARTNER | tojson }};
+
+    let universeData = {};
+    let shopLookup = {};
+    let capturedBlob = null;
+    let cameraStream = null;
+
+    function showSuccessModal(message, submissionId) {
+        const msgEl = document.getElementById('modalMessage');
+        const refBadge = submissionId ? '<br><span class="modal-ref">Ref: ' + submissionId + '</span>' : '';
+        msgEl.innerHTML = message + refBadge;
+        document.getElementById('successModal').classList.add('active');
+    }
+
+    function closeSuccessModal() {
+        document.getElementById('successModal').classList.remove('active');
+    }
+
+    let searchList = [];
+
+    // Load Universe shop hierarchy
+    async function loadUniverse() {
+        try {
+            const resp = await fetch('/api/universe');
+            universeData = await resp.json();
+            populatePartnerOptions();
+            buildShopSearchList();
+        } catch (err) {
+            console.error("Failed to load universe data", err);
+        }
+    }
+
+    function populatePartnerOptions() {
+        const partnerSelect = document.getElementById('partnerCode');
+        partnerSelect.innerHTML = '<option value="">Select partner</option>';
+        const codes = Object.keys(universeData);
+        codes.forEach(code => {
+            const opt = document.createElement('option');
+            opt.value = code;
+            opt.textContent = PARTNER_NAME_BY_CODE[code] || code;
+            partnerSelect.appendChild(opt);
+        });
+
+        if (codes.length === 1 && {{ 'true' if user and user.get('role') == 'partner' else 'false' }}) {
+            partnerSelect.value = codes[0];
+            partnerSelect.disabled = true;
+            onPartnerChange();
+        } else {
+            partnerSelect.disabled = false;
+        }
+    }
+
+    function buildShopSearchList() {
+        searchList = [];
+        for (const partnerCode in universeData) {
+            for (const area in universeData[partnerCode]) {
+                for (const subArea in universeData[partnerCode][area]) {
+                    const shops = universeData[partnerCode][area][subArea];
+                    shops.forEach(shop => {
+                        searchList.push({
+                            partnerCode,
+                            area,
+                            subArea,
+                            shop,
+                            title: `${shop.store_name} ${shop.store_code ? '[' + shop.store_code + ']' : ''}`,
+                            sub: `${area}, ${subArea}`
+                        });
+                    });
+                }
+            }
+        }
+    }
+
+    const shopSearchInput = document.getElementById('shopSearch');
+    const searchResults = document.getElementById('searchResults');
+
+    shopSearchInput.addEventListener('input', function() {
+        const q = this.value.trim().toLowerCase();
+        if (!q) {
+            searchResults.style.display = 'none';
+            searchResults.innerHTML = '';
+            return;
+        }
+        const matches = searchList.filter(item => 
+            item.title.toLowerCase().includes(q) || 
+            item.sub.toLowerCase().includes(q)
+        ).slice(0, 10);
+
+        if (matches.length === 0) {
+            searchResults.innerHTML = '<div class="search-item" style="color: var(--text-secondary);">No matching shops found</div>';
+            searchResults.style.display = 'block';
+            return;
+        }
+
+        searchResults.innerHTML = matches.map(m => `
+            <div class="search-item" data-partner="${m.partnerCode}" data-area="${m.area}" data-subarea="${m.subArea}" data-shopid="${m.shop.selection_id}">
+                <div class="search-item-title">${m.title}</div>
+                <div class="search-item-sub">📍 ${m.sub}</div>
+            </div>
+        `).join('');
+        searchResults.style.display = 'block';
+    });
+
+    searchResults.addEventListener('click', function(e) {
+        const item = e.target.closest('.search-item');
+        if (!item || !item.dataset.partner) return;
+
+        const partnerCode = item.dataset.partner;
+        const area = item.dataset.area;
+        const subArea = item.dataset.subarea;
+        const shopId = item.dataset.shopid;
+
+        document.getElementById('partnerCode').value = partnerCode;
+        onPartnerChange();
+        document.getElementById('areaSelect').value = area;
+        onAreaChange();
+        document.getElementById('subAreaSelect').value = subArea;
+        onSubAreaChange();
+        document.getElementById('shopSelect').value = shopId;
+        onShopChange();
+
+        shopSearchInput.value = item.querySelector('.search-item-title').textContent.trim();
+        searchResults.style.display = 'none';
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.search-container')) {
+            searchResults.style.display = 'none';
+        }
+    });
+
+    // Cascade Event Listeners
+    document.getElementById('partnerCode').addEventListener('change', onPartnerChange);
+    document.getElementById('areaSelect').addEventListener('change', onAreaChange);
+    document.getElementById('subAreaSelect').addEventListener('change', onSubAreaChange);
+    document.getElementById('shopSelect').addEventListener('change', onShopChange);
+
+    function onPartnerChange() {
+        const partnerCode = document.getElementById('partnerCode').value;
+        const areaSelect = document.getElementById('areaSelect');
+        const subAreaSelect = document.getElementById('subAreaSelect');
+        const shopSelect = document.getElementById('shopSelect');
+
+        areaSelect.innerHTML = '<option value="">Select area</option>';
+        subAreaSelect.innerHTML = '<option value="">Select sub area</option>';
+        subAreaSelect.disabled = true;
+        shopSelect.innerHTML = '<option value="">Select shop</option>';
+        shopSelect.disabled = true;
+        hideShopDetails();
+
+        if (partnerCode && universeData[partnerCode]) {
+            const areas = Object.keys(universeData[partnerCode]);
+            areas.forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a;
+                opt.textContent = a;
+                areaSelect.appendChild(opt);
+            });
+            areaSelect.disabled = false;
+        } else {
+            areaSelect.disabled = true;
+        }
+
+        renderBrandOptions(partnerCode);
+    }
+
+    function onAreaChange() {
+        const partnerCode = document.getElementById('partnerCode').value;
+        const area = document.getElementById('areaSelect').value;
+        const subAreaSelect = document.getElementById('subAreaSelect');
+        const shopSelect = document.getElementById('shopSelect');
+
+        subAreaSelect.innerHTML = '<option value="">Select sub area</option>';
+        shopSelect.innerHTML = '<option value="">Select shop</option>';
+        shopSelect.disabled = true;
+        hideShopDetails();
+
+        if (partnerCode && area && universeData[partnerCode] && universeData[partnerCode][area]) {
+            const subAreas = Object.keys(universeData[partnerCode][area]);
+            subAreas.forEach(sa => {
+                const opt = document.createElement('option');
+                opt.value = sa;
+                opt.textContent = sa;
+                subAreaSelect.appendChild(opt);
+            });
+            subAreaSelect.disabled = false;
+        } else {
+            subAreaSelect.disabled = true;
+        }
+    }
+
+    function onSubAreaChange() {
+        const partnerCode = document.getElementById('partnerCode').value;
+        const area = document.getElementById('areaSelect').value;
+        const subArea = document.getElementById('subAreaSelect').value;
+        const shopSelect = document.getElementById('shopSelect');
+
+        shopSelect.innerHTML = '<option value="">Select shop</option>';
+        hideShopDetails();
+
+        if (partnerCode && area && subArea && universeData[partnerCode]?.[area]?.[subArea]) {
+            const shops = universeData[partnerCode][area][subArea];
+            shops.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.selection_id;
+                opt.textContent = s.store_code ? `${s.store_name} [${s.store_code}]` : s.store_name;
+                shopSelect.appendChild(opt);
+            });
+            shopSelect.disabled = false;
+        } else {
+            shopSelect.disabled = true;
+        }
+    }
+
+    function onShopChange() {
+        const partnerCode = document.getElementById('partnerCode').value;
+        const area = document.getElementById('areaSelect').value;
+        const subArea = document.getElementById('subAreaSelect').value;
+        const shopId = document.getElementById('shopSelect').value;
+
+        if (!shopId) {
+            hideShopDetails();
+            return;
+        }
+
+        const shops = universeData[partnerCode]?.[area]?.[subArea] || [];
+        const shop = shops.find(s => s.selection_id === shopId);
+        if (shop) {
+            showShopDetails(shop, partnerCode, area, subArea);
+        }
+    }
+
+    function showShopDetails(shop, partnerCode, area, subArea) {
+        document.getElementById('detailStoreName').textContent = shop.store_name || '—';
+        document.getElementById('detailStoreCode').textContent = shop.store_code || '—';
+        document.getElementById('detailChannel').textContent = shop.channel_classification || '—';
+        document.getElementById('detailOwner').textContent = (shop.owner_name || '—') + ' | ' + (shop.owner_contact || '—');
+        document.getElementById('detailAddress').textContent = shop.address || '—';
+
+        if (shop.latitude && shop.longitude) {
+            const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(shop.latitude + ',' + shop.longitude)}`;
+            document.getElementById('detailMapLink').href = mapUrl;
+            document.getElementById('detailMapContainer').style.display = 'block';
+        } else {
+            document.getElementById('detailMapContainer').style.display = 'none';
+        }
+
+        document.getElementById('shopDetailsContainer').style.display = 'block';
+        fetchLastVisitDate(PARTNER_NAME_BY_CODE[partnerCode] || partnerCode, area, subArea, shop.store_name, shop.store_code);
+    }
+
+    function hideShopDetails() {
+        document.getElementById('shopDetailsContainer').style.display = 'none';
+        document.getElementById('lastVisitBadge').style.display = 'none';
+    }
+
+    async function fetchLastVisitDate(partnerName, area, subArea, shopName, storeCode) {
+        try {
+            const params = new URLSearchParams({
+                partner_name: partnerName,
+                area: area,
+                sub_area: subArea,
+                shop_name: shopName,
+                store_code: storeCode || ''
+            });
+            const resp = await fetch(`/api/last-visit?${params}`);
+            const data = await resp.json();
+            if (data.last_visit_date) {
+                document.getElementById('lastVisitDateText').textContent = data.last_visit_date;
+                document.getElementById('lastVisitBadge').style.display = 'block';
+            } else {
+                document.getElementById('lastVisitBadge').style.display = 'none';
+            }
+        } catch (err) {
+            document.getElementById('lastVisitBadge').style.display = 'none';
+        }
+    }
+
+    // Dynamic brand checkboxes
+    function renderBrandOptions(partnerCode) {
+        const competitorOptions = COMPETITOR_BRANDS_BY_PARTNER[partnerCode] || ["Other"];
+        const compGroup = document.getElementById('competitorBrandsGroup');
+        compGroup.innerHTML = '';
+        competitorOptions.forEach(brand => {
+            const label = document.createElement('label');
+            label.className = 'chip-label';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.name = 'competitor_brands';
+            cb.value = brand;
+            if (brand === 'Other') {
+                cb.id = 'cbCompetitorOther';
+                cb.addEventListener('change', e => {
+                    document.getElementById('competitorOtherGroup').style.display = e.target.checked ? 'block' : 'none';
+                });
+            }
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(' ' + brand));
+            compGroup.appendChild(label);
+        });
+
+        const topOptions = TOP_BRANDS_BY_PARTNER[partnerCode] || ["Other"];
+        const topGroup = document.getElementById('topBrandsGroup');
+        topGroup.innerHTML = '';
+        topOptions.forEach(brand => {
+            const label = document.createElement('label');
+            label.className = 'chip-label';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.name = 'top_brands';
+            cb.value = brand;
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(' ' + brand));
+            topGroup.appendChild(label);
+        });
+    }
+
+    // Visited before toggle
+    document.getElementById('visitedBefore').addEventListener('change', function(e) {
+        const lastVisitGroup = document.getElementById('lastVisitGroup');
+        const lastVisitInput = document.getElementById('lastVisit');
+        if (e.target.checked) {
+            lastVisitGroup.style.display = 'block';
+            lastVisitInput.value = new Date().toISOString().split('T')[0];
+        } else {
+            lastVisitGroup.style.display = 'none';
+            lastVisitInput.value = '';
+        }
+    });
+
+    // Payment gateway "Other" toggle
+    document.getElementById('cbPaymentOther').addEventListener('change', function(e) {
+        document.getElementById('paymentOtherGroup').style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    let isFlipped = false;
+
+    // Camera & Media handling
+    document.getElementById('btnStartCamera').addEventListener('click', async () => {
+        document.getElementById('cameraWrapper').style.display = 'block';
+        try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            const video = document.getElementById('webcam');
+            video.srcObject = cameraStream;
+            video.style.display = 'block';
+            document.getElementById('photoPreview').style.display = 'none';
+            document.getElementById('btnCapturePhoto').style.display = 'inline-flex';
+            document.getElementById('btnFlipPhoto').style.display = 'none';
+            document.getElementById('btnRetakePhoto').style.display = 'none';
+        } catch (err) {
+            alert("Could not access camera: " + err.message);
+        }
+    });
+
+    function renderCapturedPhoto(flip) {
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('photoCanvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (flip) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+        }
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        canvas.toBlob(blob => {
+            capturedBlob = blob;
+            const img = document.getElementById('photoPreview');
+            img.src = URL.createObjectURL(blob);
+            img.style.display = 'block';
+            video.style.display = 'none';
+            document.getElementById('btnCapturePhoto').style.display = 'none';
+            document.getElementById('btnFlipPhoto').style.display = 'inline-flex';
+            document.getElementById('btnRetakePhoto').style.display = 'inline-flex';
+        }, 'image/jpeg', 0.9);
+    }
+
+    document.getElementById('btnCapturePhoto').addEventListener('click', () => {
+        isFlipped = false;
+        renderCapturedPhoto(isFlipped);
+    });
+
+    document.getElementById('btnFlipPhoto').addEventListener('click', () => {
+        isFlipped = !isFlipped;
+        renderCapturedPhoto(isFlipped);
+    });
+
+    document.getElementById('btnRetakePhoto').addEventListener('click', () => {
+        capturedBlob = null;
+        isFlipped = false;
+        document.getElementById('photoPreview').style.display = 'none';
+        document.getElementById('webcam').style.display = 'block';
+        document.getElementById('btnCapturePhoto').style.display = 'inline-flex';
+        document.getElementById('btnFlipPhoto').style.display = 'none';
+        document.getElementById('btnRetakePhoto').style.display = 'none';
+    });
+
+    function stopCamera() {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+        }
+    }
+
+    // Geolocation capture & Submit Form
+    document.getElementById('visitForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        // Get Location
+        if (navigator.geolocation) {
+            try {
+                const pos = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000, enableHighAccuracy: true });
+                });
+                document.getElementById('userLat').value = pos.coords.latitude;
+                document.getElementById('userLng').value = pos.coords.longitude;
+                document.getElementById('userAcc').value = pos.coords.accuracy;
+            } catch (geoErr) {
+                console.warn("Geolocation warning:", geoErr);
+            }
+        }
+
+        const formData = new FormData(this);
+
+        // Append camera captured photo if available
+        if (capturedBlob) {
+            formData.set('photo', capturedBlob, 'captured-selfie.jpg');
+        }
+
+        const submitBtn = document.getElementById('btnSubmitForm');
+        const submitText = document.getElementById('btnSubmitText');
+        const spinner = document.getElementById('btnSpinner');
+
+        submitBtn.disabled = true;
+        submitText.textContent = "Saving market visit…";
+        spinner.style.display = 'inline-block';
+
+        try {
+            const resp = await fetch('/api/submit', { method: 'POST', body: formData });
+            const result = await resp.json();
+            if (result.ok) {
+                showSuccessModal(result.message, result.submission_id);
+                stopCamera();
+                this.reset();
+                capturedBlob = null;
+                document.getElementById('cameraWrapper').style.display = 'none';
+                onPartnerChange();
+                loadSubmissions();
+            } else {
+                document.getElementById('flashAlert').innerHTML = `
+                    <div class="alert alert-danger">
+                        ❌ ${result.error}
+                    </div>
+                `;
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        } catch (err) {
+            document.getElementById('flashAlert').innerHTML = `
+                <div class="alert alert-danger">
+                    ❌ An error occurred: ${err.message}
+                </div>
+            `;
+        } finally {
+            submitBtn.disabled = false;
+            submitText.textContent = "Submit Market Visit";
+            spinner.style.display = 'none';
+        }
+    });
+
+    // Submissions table loader
+    async function loadSubmissions() {
+        const container = document.getElementById('submissionsContainer');
+        try {
+            const resp = await fetch('/api/submissions');
+            const data = await resp.json();
+            if (data.error) {
+                container.innerHTML = `<p style="color: red;">${data.error}</p>`;
+                return;
+            }
+            if (!data.submissions || data.submissions.length === 0) {
+                container.innerHTML = `<p style="color: var(--text-secondary); font-size: 0.9rem;">You have not submitted any market visits yet.</p>`;
+                return;
+            }
+
+            let html = `
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border-color); color: var(--accent-green);">
+                            <th style="padding: 0.6rem;">Submitted At</th>
+                            <th style="padding: 0.6rem;">Partner</th>
+                            <th style="padding: 0.6rem;">Store Code</th>
+                            <th style="padding: 0.6rem;">Shop Name</th>
+                            <th style="padding: 0.6rem;">Area</th>
+                            <th style="padding: 0.6rem;">Sub Area</th>
+                            <th style="padding: 0.6rem;">Booker</th>
+                            <th style="padding: 0.6rem;">Sales (PKR)</th>
+                            <th style="padding: 0.6rem;">Photo</th>
+                            <th style="padding: 0.6rem;">Payment Gateways</th>
+                            <th style="padding: 0.6rem;">QR Payment</th>
+                            <th style="padding: 0.6rem;">Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.submissions.forEach(sub => {
+                html += `
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 0.6rem; white-space: nowrap;">${sub['Submitted At'] || ''}</td>
+                        <td style="padding: 0.6rem;">${sub['Partner'] || ''}</td>
+                        <td style="padding: 0.6rem;">${sub['Store Code'] || ''}</td>
+                        <td style="padding: 0.6rem; font-weight: 600;">${sub['Shop Name'] || ''}</td>
+                        <td style="padding: 0.6rem;">${sub['Area'] || ''}</td>
+                        <td style="padding: 0.6rem;">${sub['Sub Area'] || ''}</td>
+                        <td style="padding: 0.6rem;">${sub['Booker Name'] || ''}</td>
+                        <td style="padding: 0.6rem;">${sub['Monthly Sales'] ? Number(sub['Monthly Sales']).toLocaleString() : '0'}</td>
+                        <td style="padding: 0.6rem;">${sub['Photo'] || ''}</td>
+                        <td style="padding: 0.6rem;">${sub['Payment Gateways'] || ''}</td>
+                        <td style="padding: 0.6rem;">${sub['QR Payment'] || ''}</td>
+                        <td style="padding: 0.6rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${sub['Remarks'] || ''}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+                <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">Showing ${data.submissions.length} submission(s).</div>
+            `;
+            container.innerHTML = html;
+        } catch (err) {
+            container.innerHTML = `<p style="color: red;">Could not load submissions.</p>`;
+        }
+    }
+
+    document.getElementById('btnRefreshSubmissions').addEventListener('click', loadSubmissions);
+
+    // Initial setup
+    loadUniverse();
+    loadSubmissions();
+</script>
+{% endblock %}
