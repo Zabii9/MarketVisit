@@ -279,15 +279,26 @@
 
     let searchList = [];
 
+    const IS_PARTNER = {{ 'true' if user and user.get('role') == 'partner' else 'false' }};
+
     // Load Universe shop hierarchy
-    async function loadUniverse() {
+    async function loadUniverse(retryCount = 0) {
         try {
             const resp = await fetch('/api/universe');
-            universeData = await resp.json();
-            populatePartnerOptions();
-            buildShopSearchList();
+            const data = await resp.json();
+            if (data && !data.error) {
+                universeData = data;
+                populatePartnerOptions();
+                buildShopSearchList();
+                if (IS_PARTNER && Object.keys(universeData).length === 0 && retryCount < 2) {
+                    setTimeout(() => loadUniverse(retryCount + 1), 1200);
+                }
+            }
         } catch (err) {
             console.error("Failed to load universe data", err);
+            if (retryCount < 2) {
+                setTimeout(() => loadUniverse(retryCount + 1), 1500);
+            }
         }
     }
 
@@ -302,10 +313,16 @@
             partnerSelect.appendChild(opt);
         });
 
-        if (codes.length === 1 && {{ 'true' if user and user.get('role') == 'partner' else 'false' }}) {
-            partnerSelect.value = codes[0];
-            partnerSelect.disabled = true;
-            onPartnerChange();
+        if (codes.length > 0) {
+            if (IS_PARTNER || codes.length === 1) {
+                partnerSelect.value = codes[0];
+                if (IS_PARTNER) {
+                    partnerSelect.disabled = true;
+                }
+                onPartnerChange();
+            } else {
+                partnerSelect.disabled = false;
+            }
         } else {
             partnerSelect.disabled = false;
         }

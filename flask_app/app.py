@@ -865,11 +865,11 @@ def api_universe():
         return jsonify({"error": err_msg}), 500
 
     if user.get("role") == "partner":
-        assigned_partner_codes = user.get("partner_codes", [])
+        assigned_partner_codes = [str(c).strip().casefold() for c in user.get("partner_codes", [])]
         partner_locations = {
-            code: partner_locations[code]
-            for code in assigned_partner_codes
-            if code in partner_locations
+            code: data
+            for code, data in partner_locations.items()
+            if code.strip().casefold() in assigned_partner_codes
         }
 
     return jsonify(partner_locations)
