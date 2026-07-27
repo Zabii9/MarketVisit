@@ -1,0 +1,245 @@
+{% extends "layout.html" %}
+
+{% block title %}User Management - Daily Market Visit{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>👥 User Management</h1>
+    <p>Create, update, and manage system user accounts and partner permissions.</p>
+    <div class="user-badge">
+        <span>Signed in as <strong>{{ user.display_name }}</strong> (Administrator)</span>
+        <a href="/" style="color: #8fd5a5; text-decoration: none; font-weight: 600; margin-left: 0.75rem;">🏠 Dashboard</a>
+        <a href="/logout" class="logout-link">Sign out</a>
+    </div>
+</div>
+
+<div id="userAlert"></div>
+
+<div class="section-label">
+    <span>System Users</span>
+    <button type="button" class="btn-action" style="width: auto; padding: 0.5rem 1.1rem; font-size: 0.9rem;" onclick="openAddUserModal()">
+        ➕ Add New User
+    </button>
+</div>
+
+<div class="card" style="padding: 1.2rem; overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem; text-align: left;">
+        <thead>
+            <tr style="border-bottom: 2px solid var(--border-color); color: var(--accent-green);">
+                <th style="padding: 0.75rem 0.6rem;">Username</th>
+                <th style="padding: 0.75rem 0.6rem;">Display Name</th>
+                <th style="padding: 0.75rem 0.6rem;">Role</th>
+                <th style="padding: 0.75rem 0.6rem;">Assigned Partners</th>
+                <th style="padding: 0.75rem 0.6rem; text-align: right;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users_list %}
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 0.75rem 0.6rem; font-weight: 700;">{{ u.username }}</td>
+                <td style="padding: 0.75rem 0.6rem;">{{ u.display_name }}</td>
+                <td style="padding: 0.75rem 0.6rem;">
+                    {% if u.role == 'admin' %}
+                    <span style="background: #fff3e0; color: #e65100; font-weight: 700; font-size: 0.78rem; padding: 0.3rem 0.65rem; border-radius: 20px;">🛡️ Administrator</span>
+                    {% else %}
+                    <span style="background: var(--badge-bg); color: var(--badge-text); font-weight: 700; font-size: 0.78rem; padding: 0.3rem 0.65rem; border-radius: 20px;">🤝 Partner</span>
+                    {% endif %}
+                </td>
+                <td style="padding: 0.75rem 0.6rem;">
+                    {% if u.role == 'admin' %}
+                    <span style="color: var(--text-secondary); font-style: italic;">All Partners (Admin Access)</span>
+                    {% else %}
+                        {% set names = [] %}
+                        {% for code in u.partner_codes %}
+                            {% set _ = names.append(PARTNER_NAME_BY_CODE.get(code, code)) %}
+                        {% endfor %}
+                        {{ names | join(', ') if names else 'None' }}
+                    {% endif %}
+                </td>
+                <td style="padding: 0.75rem 0.6rem; text-align: right;">
+                    <button type="button" class="btn-secondary" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; margin-right: 0.3rem;" 
+                            onclick='openEditUserModal({{ u | tojson }})'>
+                        ✏️ Edit
+                    </button>
+                    {% if u.username.casefold() != user.username.casefold() %}
+                    <button type="button" class="btn-secondary" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; border-color: #f8b4b4; color: #c72b29;" 
+                            onclick="confirmDeleteUser('{{ u.username }}')">
+                        🗑️ Delete
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- User Add / Edit Modal -->
+<div class="modal-overlay" id="userFormModal">
+    <div class="modal-card" style="max-width: 520px; text-align: left;">
+        <h3 id="userModalTitle" class="modal-title" style="margin-bottom: 1.2rem; color: var(--accent-green);">Add New User</h3>
+        
+        <form id="userModalForm">
+            <input type="hidden" id="modalIsEdit" value="false">
+            
+            <div class="form-group">
+                <label class="form-label" for="modalUsername">Username *</label>
+                <input type="text" id="modalUsername" class="form-control" placeholder="e.g. jdoe" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="modalDisplayName">Display Name *</label>
+                <input type="text" id="modalDisplayName" class="form-control" placeholder="e.g. John Doe" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="modalPassword" id="modalPasswordLabel">Password *</label>
+                <input type="password" id="modalPassword" class="form-control" placeholder="Enter password">
+                <small id="modalPasswordHelp" style="display: none; color: var(--text-secondary); font-size: 0.78rem; margin-top: 0.25rem;">Leave blank to keep existing password.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="modalRole">Role *</label>
+                <select id="modalRole" class="form-select" onchange="onModalRoleChange()">
+                    <option value="partner">Partner</option>
+                    <option value="admin">Administrator</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="modalPartnerGroup">
+                <label class="form-label">Assigned Partner Accounts *</label>
+                <div class="checkbox-group">
+                    {% for code, name in PARTNER_NAME_BY_CODE.items() %}
+                    <label class="chip-label">
+                        <input type="checkbox" name="modal_partner_codes" value="{{ code }}">
+                        {{ name }} ({{ code }})
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; margin-top: 1.8rem;">
+                <button type="submit" class="btn-submit" id="btnSaveUser">Save User</button>
+                <button type="button" class="btn-secondary" style="width: auto;" onclick="closeUserModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function openAddUserModal() {
+        document.getElementById('userModalTitle').textContent = "Add New User";
+        document.getElementById('modalIsEdit').value = "false";
+        document.getElementById('modalUsername').value = "";
+        document.getElementById('modalUsername').disabled = false;
+        document.getElementById('modalDisplayName').value = "";
+        document.getElementById('modalPassword').value = "";
+        document.getElementById('modalPassword').required = true;
+        document.getElementById('modalPasswordLabel').textContent = "Password *";
+        document.getElementById('modalPasswordHelp').style.display = 'none';
+        document.getElementById('modalRole').value = "partner";
+        
+        document.querySelectorAll('input[name="modal_partner_codes"]').forEach(cb => cb.checked = false);
+        onModalRoleChange();
+        
+        document.getElementById('userFormModal').classList.add('active');
+    }
+
+    function openEditUserModal(u) {
+        document.getElementById('userModalTitle').textContent = "Edit User: " + u.username;
+        document.getElementById('modalIsEdit').value = "true";
+        document.getElementById('modalUsername').value = u.username;
+        document.getElementById('modalUsername').disabled = true;
+        document.getElementById('modalDisplayName').value = u.display_name || u.username;
+        document.getElementById('modalPassword').value = "";
+        document.getElementById('modalPassword').required = false;
+        document.getElementById('modalPasswordLabel').textContent = "Password (Optional)";
+        document.getElementById('modalPasswordHelp').style.display = 'block';
+        document.getElementById('modalRole').value = u.role || "partner";
+
+        const codes = u.partner_codes || [];
+        document.querySelectorAll('input[name="modal_partner_codes"]').forEach(cb => {
+            cb.checked = codes.includes(cb.value);
+        });
+
+        onModalRoleChange();
+        document.getElementById('userFormModal').classList.add('active');
+    }
+
+    function closeUserModal() {
+        document.getElementById('userFormModal').classList.remove('active');
+    }
+
+    function onModalRoleChange() {
+        const role = document.getElementById('modalRole').value;
+        const group = document.getElementById('modalPartnerGroup');
+        group.style.display = role === 'partner' ? 'block' : 'none';
+    }
+
+    document.getElementById('userModalForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const isEdit = document.getElementById('modalIsEdit').value === "true";
+        const username = document.getElementById('modalUsername').value.trim();
+        const displayName = document.getElementById('modalDisplayName').value.trim();
+        const password = document.getElementById('modalPassword').value.trim();
+        const role = document.getElementById('modalRole').value;
+        
+        const partnerCodes = [];
+        if (role === 'partner') {
+            document.querySelectorAll('input[name="modal_partner_codes"]:checked').forEach(cb => {
+                partnerCodes.push(cb.value);
+            });
+        }
+
+        const endpoint = isEdit ? '/api/users/update' : '/api/users/add';
+        const saveBtn = document.getElementById('btnSaveUser');
+        saveBtn.disabled = true;
+
+        try {
+            const resp = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: username,
+                    display_name: displayName,
+                    password: password,
+                    role: role,
+                    partner_codes: partnerCodes
+                })
+            });
+            const result = await resp.json();
+            if (result.ok) {
+                location.reload();
+            } else {
+                alert("Error: " + result.error);
+            }
+        } catch (err) {
+            alert("Network error: " + err.message);
+        } finally {
+            saveBtn.disabled = false;
+        }
+    });
+
+    async function confirmDeleteUser(username) {
+        if (!confirm(`Are you sure you want to delete user account '${username}'?`)) return;
+
+        try {
+            const resp = await fetch('/api/users/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username })
+            });
+            const result = await resp.json();
+            if (result.ok) {
+                location.reload();
+            } else {
+                alert("Error: " + result.error);
+            }
+        } catch (err) {
+            alert("Network error: " + err.message);
+        }
+    }
+</script>
+{% endblock %}

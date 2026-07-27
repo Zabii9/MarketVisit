@@ -17,7 +17,7 @@
     </div>
     {% endif %}
 
-    <form method="POST" action="/login">
+    <form method="POST" action="/login" id="loginForm">
         <div class="form-group">
             <label class="form-label" for="username">Username</label>
             <input type="text" id="username" name="username" class="form-control" placeholder="Enter username" required autocomplete="username" autofocus>
@@ -28,9 +28,21 @@
             <input type="password" id="password" name="password" class="form-control" placeholder="Enter password" required autocomplete="current-password">
         </div>
 
-        <button type="submit" class="btn-submit">
-            Sign in
+        <button type="submit" class="btn-submit" id="btnLoginSubmit">
+            <span id="loginBtnText">Sign in</span>
+            <span id="loginSpinner" class="spinner" style="display: none;"></span>
         </button>
     </form>
 </div>
+
+<script>
+    document.getElementById('loginForm').addEventListener('submit', function() {
+        const btn = document.getElementById('btnLoginSubmit');
+        const text = document.getElementById('loginBtnText');
+        const spinner = document.getElementById('loginSpinner');
+        btn.disabled = true;
+        text.textContent = "Signing in & loading data…";
+        spinner.style.display = 'inline-block';
+    });
+</script>
 {% endblock %}

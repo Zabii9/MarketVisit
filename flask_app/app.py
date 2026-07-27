@@ -8,6 +8,7 @@ import io
 import os
 import re
 import sys
+import threading
 import time
 from datetime import date, datetime
 from functools import wraps
@@ -52,6 +53,7 @@ PARTNER_NAME_BY_CODE = {
     "D0573": "CBL",
     "D70002202": "Olpers KHI",
     "D70002246": "Olpers LHR",
+    "Tapal":"Tapal",
 }
 
 COMPETITOR_BRANDS_BY_PARTNER = {
@@ -197,9 +199,34 @@ def _credentials() -> Credentials:
     )
 
 
+USERS_FILE = Path("users_data.json")
+
+
+def _get_all_users() -> dict[str, dict[str, Any]]:
+    if USERS_FILE.is_file():
+        try:
+            import json
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    # Initial seed from SECRETS
+    secrets_users = _secret("users", {})
+    initial_users = {str(username): dict(settings) for username, settings in secrets_users.items()}
+    if initial_users:
+        _save_all_users(initial_users)
+    return initial_users
+
+
+def _save_all_users(users_dict: dict[str, dict[str, Any]]) -> None:
+    import json
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(users_dict, f, indent=2)
+
+
 def _configured_users() -> dict[str, dict[str, Any]]:
-    users = _secret("users", {})
-    return {str(username): dict(settings) for username, settings in users.items()}
+    return _get_all_users()
 
 
 def _authenticate(username: str, password: str) -> dict[str, Any] | None:
@@ -592,6 +619,144 @@ def login_required(f):
     return decorated_function
 
 
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "_authenticated_user" not in session:
+            return redirect(url_for("login"))
+        user = session.get("_authenticated_user", {})
+        if user.get("role") != "admin":
+            flash("Access denied: Administrator privileges required.")
+            return redirect(url_for("index"))
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
+@app.route("/users")
+@admin_required
+def manage_users():
+    user = session.get("_authenticated_user", {})
+    all_users = _get_all_users()
+    users_list = []
+    for uname, udata in sorted(all_users.items(), key=lambda x: x[0].casefold()):
+        codes = udata.get("partner_codes", udata.get("partner_code", []))
+        if isinstance(codes, str):
+            codes = [codes] if codes else []
+        users_list.append({
+            "username": uname,
+            "display_name": udata.get("display_name", uname),
+            "role": udata.get("role", "partner"),
+            "partner_codes": codes,
+        })
+    return render_template(
+        "users.html",
+        user=user,
+        users_list=users_list,
+        PARTNER_NAME_BY_CODE=PARTNER_NAME_BY_CODE,
+    )
+
+
+@app.route("/api/users/add", methods=["POST"])
+@admin_required
+def api_add_user():
+    data = request.get_json(force=True) or {}
+    username = str(data.get("username", "")).strip()
+    display_name = str(data.get("display_name", "")).strip() or username
+    password = str(data.get("password", "")).strip()
+    role = str(data.get("role", "partner")).strip().lower()
+    partner_codes = data.get("partner_codes", [])
+
+    if not username:
+        return jsonify({"ok": False, "error": "Username is required."}), 400
+    if not password:
+        return jsonify({"ok": False, "error": "Password is required."}), 400
+    if role not in {"admin", "partner"}:
+        return jsonify({"ok": False, "error": "Role must be 'admin' or 'partner'."}), 400
+    if role == "partner" and not partner_codes:
+        return jsonify({"ok": False, "error": "Select at least one partner code for partner users."}), 400
+
+    all_users = _get_all_users()
+    if any(u.casefold() == username.casefold() for u in all_users):
+        return jsonify({"ok": False, "error": f"Username '{username}' already exists."}), 400
+
+    password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    all_users[username] = {
+        "display_name": display_name,
+        "password_hash": password_hash,
+        "role": role,
+        "partner_codes": partner_codes if role == "partner" else [],
+    }
+    _save_all_users(all_users)
+
+    return jsonify({"ok": True, "message": f"User '{username}' created successfully."})
+
+
+@app.route("/api/users/update", methods=["POST"])
+@admin_required
+def api_update_user():
+    data = request.get_json(force=True) or {}
+    username = str(data.get("username", "")).strip()
+    display_name = str(data.get("display_name", "")).strip() or username
+    password = str(data.get("password", "")).strip()
+    role = str(data.get("role", "partner")).strip().lower()
+    partner_codes = data.get("partner_codes", [])
+
+    if not username:
+        return jsonify({"ok": False, "error": "Username is required."}), 400
+    if role not in {"admin", "partner"}:
+        return jsonify({"ok": False, "error": "Role must be 'admin' or 'partner'."}), 400
+    if role == "partner" and not partner_codes:
+        return jsonify({"ok": False, "error": "Select at least one partner code for partner users."}), 400
+
+    all_users = _get_all_users()
+    target_key = next((u for u in all_users if u.casefold() == username.casefold()), None)
+    if not target_key:
+        return jsonify({"ok": False, "error": f"User '{username}' not found."}), 404
+
+    user_entry = all_users[target_key]
+    user_entry["display_name"] = display_name
+    user_entry["role"] = role
+    user_entry["partner_codes"] = partner_codes if role == "partner" else []
+
+    if password:
+        user_entry["password_hash"] = hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+    _save_all_users(all_users)
+
+    return jsonify({"ok": True, "message": f"User '{username}' updated successfully."})
+
+
+@app.route("/api/users/delete", methods=["POST"])
+@admin_required
+def api_delete_user():
+    data = request.get_json(force=True) or {}
+    username = str(data.get("username", "")).strip()
+    current_user = session.get("_authenticated_user", {}).get("username", "")
+
+    if not username:
+        return jsonify({"ok": False, "error": "Username is required."}), 400
+    if username.casefold() == current_user.casefold():
+        return jsonify({"ok": False, "error": "You cannot delete your own logged-in admin account."}), 400
+
+    all_users = _get_all_users()
+    target_key = next((u for u in all_users if u.casefold() == username.casefold()), None)
+    if not target_key:
+        return jsonify({"ok": False, "error": f"User '{username}' not found."}), 404
+
+    del all_users[target_key]
+    _save_all_users(all_users)
+
+    return jsonify({"ok": True, "message": f"User '{username}' deleted successfully."})
+
+
+def _preload_universe_cache():
+    try:
+        _universe_partner_locations()
+    except Exception:
+        pass
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "_authenticated_user" in session:
@@ -604,6 +769,7 @@ def login():
         user = _authenticate(username, password)
         if user:
             session["_authenticated_user"] = user
+            threading.Thread(target=_preload_universe_cache, daemon=True).start()
             return redirect(url_for("index"))
         else:
             error = "Invalid username or password."
