@@ -100,6 +100,8 @@ HEADERS = FORM_HEADERS + LOCATION_HEADERS
 
 def _load_secrets() -> dict[str, Any]:
     secrets_data: dict[str, Any] = {}
+
+    # 1. Try reading TOML files
     secrets_paths = [
         Path(".streamlit/secrets.toml"),
         Path("secrets.toml"),
@@ -115,33 +117,56 @@ def _load_secrets() -> dict[str, Any]:
             except Exception:
                 pass
 
-    if not secrets_data:
-        secrets_env = os.getenv("SECRETS_TOML")
-        if secrets_env:
+    # 2. Try reading SECRETS_TOML environment variable
+    secrets_env = os.getenv("SECRETS_TOML")
+    if secrets_env:
+        try:
+            secrets_data.update(tomllib.loads(secrets_env))
+        except Exception:
+            pass
+
+    # 3. Handle GCP Service Account from env vars (JSON string or flat keys)
+    if "gcp_service_account" not in secrets_data:
+        gcp_json = os.getenv("GCP_SERVICE_ACCOUNT")
+        if gcp_json:
             try:
-                secrets_data.update(tomllib.loads(secrets_env))
+                import json
+                secrets_data["gcp_service_account"] = json.loads(gcp_json)
+            except Exception:
+                pass
+        elif os.getenv("private_key") or os.getenv("PRIVATE_KEY"):
+            private_key = os.getenv("private_key") or os.getenv("PRIVATE_KEY") or ""
+            if "\\n" in private_key and "\n" not in private_key:
+                private_key = private_key.replace("\\n", "\n")
+            secrets_data["gcp_service_account"] = {
+                "type": os.getenv("type") or os.getenv("TYPE") or "service_account",
+                "project_id": os.getenv("project_id") or os.getenv("PROJECT_ID") or "",
+                "private_key_id": os.getenv("private_key_id") or os.getenv("PRIVATE_KEY_ID") or "",
+                "private_key": private_key,
+                "client_email": os.getenv("client_email") or os.getenv("CLIENT_EMAIL") or "",
+                "client_id": os.getenv("client_id") or os.getenv("CLIENT_ID") or "",
+                "auth_uri": os.getenv("auth_uri") or "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": os.getenv("token_uri") or "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": os.getenv("auth_provider_x509_cert_url") or "https://www.googleapis.com/oauth2/v1/certs",
+                "client_x509_cert_url": os.getenv("client_x509_cert_url") or "",
+            }
+
+    # 4. Handle Users from USERS_JSON environment variable
+    if "users" not in secrets_data:
+        users_json = os.getenv("USERS_JSON")
+        if users_json:
+            try:
+                import json
+                secrets_data["users"] = json.loads(users_json)
             except Exception:
                 pass
 
-    # Individual environment variables fallback
-    if "gcp_service_account" not in secrets_data and os.getenv("GCP_SERVICE_ACCOUNT"):
-        try:
-            import json
-            secrets_data["gcp_service_account"] = json.loads(os.getenv("GCP_SERVICE_ACCOUNT", "{}"))
-        except Exception:
-            pass
-
-    if "users" not in secrets_data and os.getenv("USERS_JSON"):
-        try:
-            import json
-            secrets_data["users"] = json.loads(os.getenv("USERS_JSON", "{}"))
-        except Exception:
-            pass
-
+    # 5. Handle flat keys (lowercase or uppercase)
     for key in ["apps_script_upload_url", "apps_script_upload_token", "drive_folder_id", "flask_secret_key"]:
-        env_key = key.upper()
-        if key not in secrets_data and os.getenv(env_key):
-            secrets_data[key] = os.getenv(env_key)
+        if key not in secrets_data:
+            val = os.getenv(key) or os.getenv(key.upper())
+            if val:
+                secrets_data[key] = val
 
     return secrets_data
 
