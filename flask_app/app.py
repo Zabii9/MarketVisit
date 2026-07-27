@@ -199,39 +199,94 @@ def _credentials() -> Credentials:
     )
 
 
-def _users_file_path() -> Path:
-    if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
-        return Path("/tmp/users_data.json")
-    return Path("users_data.json")
+_USERS_CACHE: tuple[float, dict[str, dict[str, Any]]] = (0.0, {})
 
 
-def _get_all_users() -> dict[str, dict[str, Any]]:
-    ufile = _users_file_path()
-    if ufile.is_file():
-        try:
-            import json
-            with open(ufile, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+def _users_worksheet(credentials: Credentials) -> gspread.Worksheet:
+    client = gspread.authorize(credentials)
+    sh = client.open_by_key(SHEET_ID)
+    try:
+        ws = sh.worksheet("Users")
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title="Users", rows=100, cols=10)
+        ws.append_row(
+            ["Username", "Display Name", "Password Hash", "Role", "Partner Codes"],
+            value_input_option="RAW",
+        )
+        ws.freeze(rows=1)
+    return ws
 
-    # Initial seed from SECRETS
-    secrets_users = _secret("users", {})
-    initial_users = {str(username): dict(settings) for username, settings in secrets_users.items()}
-    if initial_users:
-        _save_all_users(initial_users)
-    return initial_users
+
+def _get_all_users(force_refresh: bool = False) -> dict[str, dict[str, Any]]:
+    global _USERS_CACHE
+    now_ts = time.time()
+    if not force_refresh and _USERS_CACHE[1] and (now_ts - _USERS_CACHE[0] < 120):
+        return _USERS_CACHE[1]
+
+    users_dict: dict[str, dict[str, Any]] = {}
+    try:
+        ws = _users_worksheet(_credentials())
+        records = ws.get_all_records()
+        for record in records:
+            uname = str(record.get("Username", "")).strip()
+            if not uname:
+                continue
+            display_name = str(record.get("Display Name", uname)).strip() or uname
+            password_hash = str(record.get("Password Hash", "")).strip().lower()
+            role = str(record.get("Role", "partner")).strip().lower()
+            raw_codes = str(record.get("Partner Codes", "")).strip()
+            if raw_codes.startswith("[") and raw_codes.endswith("]"):
+                try:
+                    import json
+                    partner_codes = json.loads(raw_codes)
+                except Exception:
+                    partner_codes = [c.strip() for c in raw_codes.strip("[]'\"").split(",") if c.strip()]
+            else:
+                partner_codes = [c.strip() for c in raw_codes.split(",") if c.strip()]
+
+            users_dict[uname] = {
+                "display_name": display_name,
+                "password_hash": password_hash,
+                "role": role,
+                "partner_codes": partner_codes,
+            }
+    except Exception as exc:
+        print("Warning: Could not read Users from Google Sheet:", exc)
+
+    # Initial seed from SECRETS if worksheet was empty
+    if not users_dict:
+        secrets_users = _secret("users", {})
+        initial_users = {str(username): dict(settings) for username, settings in secrets_users.items()}
+        if initial_users:
+            users_dict = initial_users
+            _save_all_users(initial_users)
+
+    _USERS_CACHE = (now_ts, users_dict)
+    return users_dict
 
 
 def _save_all_users(users_dict: dict[str, dict[str, Any]]) -> None:
-    ufile = _users_file_path()
+    global _USERS_CACHE
     try:
-        import json
-        ufile.parent.mkdir(parents=True, exist_ok=True)
-        with open(ufile, "w", encoding="utf-8") as f:
-            json.dump(users_dict, f, indent=2)
+        ws = _users_worksheet(_credentials())
+        rows = [["Username", "Display Name", "Password Hash", "Role", "Partner Codes"]]
+        for uname, udata in sorted(users_dict.items(), key=lambda x: x[0].casefold()):
+            display_name = udata.get("display_name", uname)
+            password_hash = udata.get("password_hash", "")
+            role = udata.get("role", "partner")
+            codes = udata.get("partner_codes", udata.get("partner_code", []))
+            if isinstance(codes, list):
+                codes_str = ", ".join(codes)
+            else:
+                codes_str = str(codes)
+            rows.append([uname, display_name, password_hash, role, codes_str])
+
+        ws.clear()
+        ws.update(range_name=f"A1:E{len(rows)}", values=rows)
     except Exception as exc:
-        print("Warning: Could not save users file:", exc)
+        print("Error saving Users to Google Sheet:", exc)
+
+    _USERS_CACHE = (time.time(), users_dict)
 
 
 def _configured_users() -> dict[str, dict[str, Any]]:
@@ -856,6 +911,8 @@ def api_submissions():
 def api_submit():
     user = session.get("_authenticated_user", {})
     partner_code = request.form.get("partner_code", "").strip()
+    if not partner_code and user.get("partner_codes"):
+        partner_code = user["partner_codes"][0]
     partner_name = PARTNER_NAME_BY_CODE.get(partner_code, partner_code)
     area = request.form.get("area", "").strip()
     sub_area = request.form.get("sub_area", "").strip()
