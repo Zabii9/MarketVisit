@@ -21,7 +21,6 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
-from location_submit import location_submit_button
 
 
 SHEET_ID = "1Mt-Y09-azOOQ9r6nqELCQbeoeNtE-Z3JJaJ5WiMzP0A"
@@ -33,6 +32,13 @@ PARTNER_NAME_BY_CODE = {
     "D0573": "CBL",
     "D70002202": "Olpers KHI",
     "D70002246": "Olpers LHR",
+}
+
+COMPETITOR_BRANDS_BY_PARTNER = {
+    "D70002202": ["Milkpak", "Dairy Omung", "Haleeb", "Dostea", "Good Milk", "Other"],
+    "D70002246": ["Milkpak", "Dairy Omung", "Haleeb", "Dostea", "Good Milk", "Other"],
+    "D0573": ["LU", "Bisconi", "Cookinia", "Other"],
+    "Tapal": ["Meezan", "Lipton", "Vital", "Other"],
 }
 
 BASE_HEADERS = [
@@ -166,6 +172,64 @@ st.markdown(
       }
       .section-label { color: #1f5c43; font-weight: 750; margin: .2rem 0 .4rem; }
       .footnote { text-align: center; color: #68756d; font-size: .82rem; margin-top: 1rem; }
+
+      html[data-theme="dark"] .stApp { background: #0f1415; color: #e8f0e8; }
+      html[data-theme="dark"] .hero {
+        background: linear-gradient(135deg, #1a3628 0%, #3a6a50 100%);
+      }
+      html[data-theme="dark"] .hero p { color: #dcebe3; }
+      html[data-theme="dark"] [data-testid="stForm"] {
+        background: #0f1618; border: 1px solid #253237; box-shadow: 0 8px 25px rgba(0,0,0,.45);
+      }
+      html[data-theme="dark"] [data-testid="stVerticalBlockBorderWrapper"],
+      html[data-theme="dark"] .st-key-market_visit_card,
+      html[data-theme="dark"] .st-key-market_visit_card [data-testid="stVerticalBlockBorderWrapper"] {
+        background: #111b1e !important;
+        background-color: #111b1e !important;
+        opacity: 1 !important;
+        backdrop-filter: none !important;
+        border-color: #253237 !important;
+      }
+      html[data-theme="dark"] [data-baseweb="input"],
+      html[data-theme="dark"] [data-baseweb="select"] > div,
+      html[data-theme="dark"] [data-baseweb="textarea"],
+      html[data-theme="dark"] [data-testid="stFileUploaderDropzone"],
+      html[data-theme="dark"] [data-testid="stNumberInputContainer"] {
+        background-color: #111b1e !important;
+      }
+      html[data-theme="dark"] [data-baseweb="input"] input,
+      html[data-theme="dark"] [data-baseweb="textarea"] textarea,
+      html[data-theme="dark"] [data-testid="stNumberInputContainer"] input {
+        background-color: #0c1416 !important;
+        color: #e8ede8 !important;
+        border-color: #253237 !important;
+      }
+      html[data-theme="dark"] .shop-details {
+        background: #111d20; border-color: #253237;
+      }
+      html[data-theme="dark"] .shop-details-title { color: #8fd5a5; }
+      html[data-theme="dark"] .shop-detail-label { color: #94a9a4; }
+      html[data-theme="dark"] .shop-detail-value { color: #eef4ea; }
+      html[data-theme="dark"] .shop-detail-value a { color: #9ed5ae; }
+      html[data-theme="dark"] .st-key-header_logout button {
+        color: rgba(255,255,255,.9) !important; background: rgba(255,255,255,.08) !important;
+        border-color: rgba(255,255,255,.12) !important;
+      }
+      html[data-theme="dark"] .st-key-header_logout button:hover {
+        background: rgba(255,255,255,.14) !important;
+        border-color: rgba(255,255,255,.24) !important;
+      }
+      html[data-theme="dark"] .st-key-header_account p {
+        color: rgba(255,255,255,.83) !important;
+      }
+      html[data-theme="dark"] div[data-testid="stFormSubmitButton"] button {
+        background: #1e8c61; color: white; border: none;
+      }
+      html[data-theme="dark"] div[data-testid="stFormSubmitButton"] button:hover {
+        background: #15734f; color: white; border: none;
+      }
+      html[data-theme="dark"] .section-label { color: #8fd5a5; }
+      html[data-theme="dark"] .footnote { color: #94a9a4; }
     </style>
     <div class="hero">
       <h1>Daily Market Visit</h1>
@@ -955,15 +1019,20 @@ with st.container(border=True, key="market_visit_card"):
             key=form_key("last_visit"),
         )
 
+    competitor_options = COMPETITOR_BRANDS_BY_PARTNER.get(partner_code, ["Other"])
     competitor_brands = st.multiselect(
         "Competitor Brand Availability *",
-        ["Milkpak", "Dairy Omung", "Haleeb", "Dostea", "Good Milk", "Other"],
+        competitor_options,
         placeholder="Select all available competitor brands",
         key=form_key("competitor_brands"),
     )
     competitor_other = ""
     if "Other" in competitor_brands:
-        competitor_other = st.text_input("Other competitor brand", placeholder="Enter brand name", key=form_key("competitor_other"))
+        competitor_other = st.text_input(
+            "Other competitor brand",
+            placeholder="Enter brand name",
+            key=form_key("competitor_other"),
+        )
 
     top_brands = st.multiselect(
         "Top Brand Availability *",
@@ -1007,37 +1076,10 @@ with st.container(border=True, key="market_visit_card"):
         key=form_key("remarks"),
     )
 
-    location_result = location_submit_button(
-        label="Submit Market Visit",
-        key=form_key("submit_with_location"),
-    )
-    location_data = location_result if isinstance(location_result, dict) else {}
-    user_latitude = location_data.get("latitude")
-    user_longitude = location_data.get("longitude")
-    location_accuracy = location_data.get("accuracy")
-    location_error = str(location_data.get("error", "")).strip()
-    submitted = False
-
-    if location_error:
-        st.error(location_error)
-    if user_latitude is not None and user_longitude is not None:
-        location_event_id = str(location_data.get("event_id", ""))
-        accuracy_text = (
-            f" · accuracy about {float(location_accuracy):.0f} m"
-            if location_accuracy is not None
-            else ""
-        )
-        st.success(
-            f"Location captured: {float(user_latitude):.6f}, "
-            f"{float(user_longitude):.6f}{accuracy_text}"
-        )
-        if (
-            location_event_id
-            and st.session_state.get("_processed_location_submit_event")
-            != location_event_id
-        ):
-            st.session_state["_processed_location_submit_event"] = location_event_id
-            submitted = True
+    submitted = st.button("Submit Market Visit", key=form_key("submit_with_location"), use_container_width=True)
+    user_latitude = ""
+    user_longitude = ""
+    location_accuracy = ""
 
 
 if submitted:
@@ -1064,8 +1106,6 @@ if submitted:
         errors.append("Enter the other payment gateway name.")
     if qr_monthly_turnover < 0:
         errors.append("QR Monthly Turnover must be a non-negative value.")
-    if user_latitude is None or user_longitude is None:
-        errors.append("Current location could not be captured. Please try again.")
 
     if errors:
         st.error("Please fix the following:\n\n- " + "\n- ".join(errors))
@@ -1104,9 +1144,9 @@ if submitted:
                     ", ".join(saved_payment_gateways),
                     qr_payment_available,
                     int(qr_monthly_turnover),
-                    float(user_latitude),
-                    float(user_longitude),
-                    float(location_accuracy) if location_accuracy is not None else "",
+                    "",
+                    "",
+                    "",
                 ]
                 _worksheet(credentials).append_row(row, value_input_option="USER_ENTERED")
                 _last_recorded_visit.clear()
@@ -1151,9 +1191,6 @@ try:
                 "Payment Gateways",
                 "QR Payment",
                 "QR Monthly Turnover",
-                "User Latitude",
-                "User Longitude",
-                "Location Accuracy (m)",
                 "Remarks",
             ],
             column_config={
@@ -1162,15 +1199,6 @@ try:
                 ),
                 "QR Monthly Turnover": st.column_config.NumberColumn(
                     "QR Monthly Turnover", format="%d"
-                ),
-                "User Latitude": st.column_config.NumberColumn(
-                    "User Latitude", format="%.6f"
-                ),
-                "User Longitude": st.column_config.NumberColumn(
-                    "User Longitude", format="%.6f"
-                ),
-                "Location Accuracy (m)": st.column_config.NumberColumn(
-                    "Location Accuracy (m)", format="%.0f"
                 ),
             },
         )
