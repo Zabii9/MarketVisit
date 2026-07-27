@@ -122,11 +122,14 @@ st.markdown(
       [data-testid="stFileUploaderDropzone"],
       [data-testid="stNumberInputContainer"] {
         background-color: #ffffff !important;
+        border: 1px solid #dfe7e1 !important;
+        border-radius: 10px !important;
       }
       [data-baseweb="input"] input,
       [data-baseweb="textarea"] textarea,
       [data-testid="stNumberInputContainer"] input {
         background-color: #ffffff !important;
+        border: none !important;
       }
       .shop-details {
         margin: .35rem 0 1rem; padding: 1rem 1.1rem; border-radius: 12px;
@@ -211,13 +214,15 @@ st.markdown(
       html[data-theme="dark"] [data-testid="stFileUploaderDropzone"],
       html[data-theme="dark"] [data-testid="stNumberInputContainer"] {
         background-color: #111b1e !important;
+        border: 1px solid #253237 !important;
+        border-radius: 10px !important;
       }
       html[data-theme="dark"] [data-baseweb="input"] input,
       html[data-theme="dark"] [data-baseweb="textarea"] textarea,
       html[data-theme="dark"] [data-testid="stNumberInputContainer"] input {
         background-color: #0c1416 !important;
         color: #e8ede8 !important;
-        border-color: #253237 !important;
+        border: none !important;
       }
       html[data-theme="dark"] .shop-details {
         background: #111d20; border-color: #253237;
@@ -781,9 +786,9 @@ if not current_user:
             st.error("Invalid username or password.")
     st.stop()
 
-if st.button("Log out", key="header_logout"):
-    st.session_state.clear()
-    st.rerun()
+# if st.button("Log out", key="header_logout"):
+#     st.session_state.clear()
+#     st.rerun()
 
 role_label = "Administrator" if current_user["role"] == "admin" else "Partner"
 with st.container(key="header_account"):
