@@ -657,10 +657,14 @@ def _save_photo(uploaded_file_name: str, file_bytes: bytes, mime_type: str, subm
             "webViewLink", f"https://drive.google.com/file/d/{created['id']}/view"
         )
 
-    UPLOAD_DIR.mkdir(exist_ok=True)
-    path = UPLOAD_DIR / filename
-    path.write_bytes(content)
-    return str(path.resolve())
+    upload_dir = Path("/tmp/uploads") if (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")) else UPLOAD_DIR
+    try:
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        path = upload_dir / filename
+        path.write_bytes(content)
+        return str(path.resolve())
+    except Exception:
+        return f"Photo_{filename}"
 
 
 def _submission_id(shop_name: str, submitted_at: datetime) -> str:

@@ -725,7 +725,14 @@
 
         try {
             const resp = await fetch('/api/submit', { method: 'POST', body: formData });
-            const result = await resp.json();
+            let result;
+            try {
+                result = await resp.json();
+            } catch (jsonErr) {
+                const textErr = await resp.text();
+                result = { ok: false, error: `Server Error (${resp.status}): ${textErr.replace(/<[^>]*>?/gm, '').trim() || resp.statusText}` };
+            }
+
             if (result.ok) {
                 showSuccessModal(result.message, result.submission_id);
                 stopCamera();
@@ -745,9 +752,10 @@
         } catch (err) {
             document.getElementById('flashAlert').innerHTML = `
                 <div class="alert alert-danger">
-                    ❌ An error occurred: ${err.message}
+                    ❌ ${err.message}
                 </div>
             `;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         } finally {
             submitBtn.disabled = false;
             submitText.textContent = "Submit Market Visit";
