@@ -14,7 +14,7 @@ from datetime import date, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, unquote
 from zoneinfo import ZoneInfo
 
 import gspread
@@ -34,6 +34,8 @@ from flask import (
     session,
     jsonify,
     flash,
+    send_from_directory,
+    send_file,
 )
 
 if sys.version_info >= (3, 11):
@@ -557,7 +559,10 @@ def _user_submissions(username: str) -> list[dict[str, Any]]:
             "Sub Area": record.get("Sub Area", ""),
             "Booker Name": record.get("Booker Name", ""),
             "Monthly Sales": record.get("Shop Avg Monthly Sales", ""),
-            "Photo": "Available" if record.get("Shop Picture + Selfie") else "",
+            "Photo URL": record.get("Shop Picture + Selfie", ""),
+            "Photo": "Available" if record.get("Shop Picture + Selfie") else "None",
+            "Competitor Brands": record.get("Competitor Brands Available", ""),
+            "Top Brands": record.get("Top Brands Available", ""),
             "Payment Gateways": record.get("Payment Gateways Available", ""),
             "QR Payment": record.get("QR Code Payment Available", ""),
             "QR Monthly Turnover": record.get("QR Monthly Turnover", ""),
@@ -662,9 +667,9 @@ def _save_photo(uploaded_file_name: str, file_bytes: bytes, mime_type: str, subm
         upload_dir.mkdir(parents=True, exist_ok=True)
         path = upload_dir / filename
         path.write_bytes(content)
-        return str(path.resolve())
+        return f"/uploads/{filename}"
     except Exception:
-        return f"Photo_{filename}"
+        return f"/uploads/{filename}"
 
 
 def _submission_id(shop_name: str, submitted_at: datetime) -> str:
@@ -675,6 +680,67 @@ def _submission_id(shop_name: str, submitted_at: datetime) -> str:
 # Initialize Flask App
 app = Flask(__name__)
 app.secret_key = _secret("flask_secret_key", os.urandom(24))
+
+
+@app.route("/uploads/<path:filename>")
+def serve_upload(filename: str):
+    upload_dir = Path("/tmp/uploads") if (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")) else UPLOAD_DIR
+    clean_name = Path(filename).name
+    if (upload_dir / clean_name).exists():
+        return send_from_directory(upload_dir, clean_name)
+    return redirect(url_for("photo_proxy", file_ref=clean_name))
+
+
+@app.route("/api/photo_proxy/<path:file_ref>")
+def photo_proxy(file_ref: str):
+    file_ref = unquote(file_ref).strip()
+    upload_dir = Path("/tmp/uploads") if (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")) else UPLOAD_DIR
+    clean_name = Path(file_ref).name
+
+    # 1. Check local upload directory first
+    local_path = upload_dir / clean_name
+    if local_path.exists():
+        return send_from_directory(upload_dir, clean_name)
+
+    # 2. Query Google Drive API via service account (by ID or by filename)
+    try:
+        credentials = _credentials()
+        drive_service = build("drive", "v3", credentials=credentials)
+        target_id = None
+
+        if "." not in file_ref and len(file_ref) >= 20:
+            target_id = file_ref
+        else:
+            # Search Google Drive by filename
+            query = f"name = '{clean_name}' and trashed = false"
+            res = drive_service.files().list(
+                q=query,
+                fields="files(id, name)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute()
+            files = res.get("files", [])
+            if files:
+                target_id = files[0]["id"]
+
+        if target_id:
+            request_media = drive_service.files().get_media(fileId=target_id)
+            buffer = io.BytesIO()
+            downloader = MediaIoBaseDownload(buffer, request_media)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            buffer.seek(0)
+            return send_file(buffer, mimetype="image/jpeg")
+    except Exception as exc:
+        print("Photo proxy error:", exc)
+
+    # 3. Fallback redirect if valid drive ID
+    if "." not in file_ref and len(file_ref) >= 20:
+        return redirect(f"https://drive.google.com/thumbnail?id={file_ref}&sz=w1000")
+
+    # 4. Fallback 404 response
+    return jsonify({"error": "Photo not found"}), 404
 
 
 def login_required(f):
@@ -821,6 +887,9 @@ def api_delete_user():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "_authenticated_user" in session:
+        user = session.get("_authenticated_user", {})
+        if user.get("role") == "admin":
+            return redirect(url_for("dashboard"))
         return redirect(url_for("index"))
 
     error = None
@@ -830,6 +899,8 @@ def login():
         user = _authenticate(username, password)
         if user:
             session["_authenticated_user"] = user
+            if user.get("role") == "admin":
+                return redirect(url_for("dashboard"))
             return redirect(url_for("index"))
         else:
             error = "Invalid username or password."
@@ -847,6 +918,9 @@ def logout():
 @login_required
 def index():
     user = session.get("_authenticated_user", {})
+    if user.get("role") == "admin" and not request.args.get("form"):
+        return redirect(url_for("dashboard"))
+
     return render_template(
         "index.html",
         user=user,
@@ -854,6 +928,7 @@ def index():
         COMPETITOR_BRANDS_BY_PARTNER=COMPETITOR_BRANDS_BY_PARTNER,
         TOP_BRANDS_BY_PARTNER=TOP_BRANDS_BY_PARTNER,
     )
+
 
 
 @app.route("/api/universe")
@@ -894,6 +969,197 @@ def api_last_visit():
         return jsonify({"last_visit_date": last_visit})
     except Exception as exc:
         return jsonify({"last_visit_date": None, "error": str(exc)})
+
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    user = session.get("_authenticated_user", {})
+    return render_template(
+        "dashboard.html",
+        user=user,
+        PARTNER_NAME_BY_CODE=PARTNER_NAME_BY_CODE,
+    )
+
+
+@app.route("/api/analytics")
+@login_required
+def api_analytics():
+    user = session.get("_authenticated_user", {})
+    role = user.get("role", "partner")
+    assigned_codes = [str(c).strip().casefold() for c in user.get("partner_codes", [])]
+    assigned_names = [PARTNER_NAME_BY_CODE.get(code, code).casefold() for code in user.get("partner_codes", [])] + assigned_codes
+
+    try:
+        worksheet = _worksheet(_credentials())
+        all_records = worksheet.get_all_records()
+    except Exception as exc:
+        err_msg = str(exc)
+        if "oauth2.googleapis.com" in err_msg or "getaddrinfo failed" in err_msg:
+            err_msg = "Network Error: Unable to connect to Google APIs. Please check your internet connection."
+        return jsonify({"error": err_msg}), 500
+
+    # Calculate Total Shops in Google Sheet Universe
+    try:
+        partner_locations = _universe_partner_locations()
+        if role == "partner":
+            partner_locations = {
+                code: data
+                for code, data in partner_locations.items()
+                if code.strip().casefold() in assigned_codes
+            }
+
+        total_universe_shops = 0
+        universe_shops_by_partner: dict[str, int] = {}
+        for p_code, area_dict in partner_locations.items():
+            p_name = PARTNER_NAME_BY_CODE.get(p_code, p_code)
+            count = 0
+            for sub_dict in area_dict.values():
+                for shops_list in sub_dict.values():
+                    count += len(shops_list)
+            total_universe_shops += count
+            universe_shops_by_partner[p_name] = universe_shops_by_partner.get(p_name, 0) + count
+    except Exception:
+        total_universe_shops = 0
+        universe_shops_by_partner = {}
+
+    # Scoped Data Visibility based on User Role and Assigned Partner Codes
+    scoped_records = []
+    for r in all_records:
+        partner_name = str(r.get("Partner Name", "")).strip()
+        record_user = str(r.get("Username", "")).strip().casefold()
+
+        if role == "admin":
+            scoped_records.append(r)
+        else:
+            if (
+                partner_name.casefold() in assigned_names
+                or record_user == str(user.get("username", "")).strip().casefold()
+            ):
+                scoped_records.append(r)
+
+    total_visits = len(scoped_records)
+    total_sales = 0.0
+    unique_shops = set()
+    unique_bookers = set()
+    qr_count = 0
+    qr_turnover_sum = 0.0
+
+    partner_counts: dict[str, int] = {}
+    top_brands_counts: dict[str, int] = {}
+    competitor_counts: dict[str, int] = {}
+    payment_counts: dict[str, int] = {}
+    area_summary: dict[str, dict[str, Any]] = {}
+
+    for r in scoped_records:
+        try:
+            sales = float(r.get("Shop Avg Monthly Sales", 0) or 0)
+        except (ValueError, TypeError):
+            sales = 0.0
+        total_sales += sales
+
+        shop = str(r.get("Shop Name", "")).strip()
+        code = str(r.get("Store Code", "")).strip()
+        if shop or code:
+            unique_shops.add(f"{shop}|{code}")
+        booker = str(r.get("Booker Name", "")).strip()
+        if booker:
+            unique_bookers.add(booker)
+
+        qr_status = str(r.get("QR Code Payment Available", "")).strip()
+        if qr_status.casefold() == "yes":
+            qr_count += 1
+            try:
+                turnover = float(r.get("QR Monthly Turnover", 0) or 0)
+            except (ValueError, TypeError):
+                turnover = 0.0
+            qr_turnover_sum += turnover
+
+        p_name = str(r.get("Partner Name", "Unknown")).strip() or "Unknown"
+        partner_counts[p_name] = partner_counts.get(p_name, 0) + 1
+
+        tb_str = str(r.get("Top Brands Available", "")).strip()
+        if tb_str and tb_str != "—":
+            for b in tb_str.split(","):
+                b_clean = b.strip()
+                if b_clean:
+                    top_brands_counts[b_clean] = top_brands_counts.get(b_clean, 0) + 1
+
+        cb_str = str(r.get("Competitor Brands Available", "")).strip()
+        if cb_str and cb_str != "—":
+            for b in cb_str.split(","):
+                b_clean = b.strip()
+                if b_clean:
+                    competitor_counts[b_clean] = competitor_counts.get(b_clean, 0) + 1
+
+        pg_str = str(r.get("Payment Gateways Available", "")).strip()
+        if pg_str and pg_str != "—":
+            for g in pg_str.split(","):
+                g_clean = g.strip()
+                if g_clean:
+                    payment_counts[g_clean] = payment_counts.get(g_clean, 0) + 1
+
+        area = str(r.get("Area", "Unspecified")).strip() or "Unspecified"
+        sub_area = str(r.get("Sub Area", "Unspecified")).strip() or "Unspecified"
+        area_key = f"{area} → {sub_area}"
+        if area_key not in area_summary:
+            area_summary[area_key] = {"area": area, "sub_area": sub_area, "visits": 0, "sales": 0.0}
+        area_summary[area_key]["visits"] += 1
+        area_summary[area_key]["sales"] += sales
+
+    area_summary_list = sorted(area_summary.values(), key=lambda x: x["visits"], reverse=True)
+
+    sanitized_scoped = []
+    for r in scoped_records:
+        try:
+            s_val = float(r.get("Shop Avg Monthly Sales", 0) or 0)
+        except Exception:
+            s_val = 0.0
+        try:
+            qr_t = float(r.get("QR Monthly Turnover", 0) or 0)
+        except Exception:
+            qr_t = 0.0
+
+        sub_at = str(r.get("Submitted At", "")).strip()
+        date_only = sub_at[:10] if len(sub_at) >= 10 else ""
+
+        sanitized_scoped.append({
+            "partner": str(r.get("Partner Name", "")).strip(),
+            "shop": str(r.get("Shop Name", "")).strip(),
+            "code": str(r.get("Store Code", "")).strip(),
+            "area": str(r.get("Area", "")).strip(),
+            "sub_area": str(r.get("Sub Area", "")).strip(),
+            "sales": s_val,
+            "top_brands": str(r.get("Top Brands Available", "")).strip(),
+            "competitors": str(r.get("Competitor Brands Available", "")).strip(),
+            "payment_gateways": str(r.get("Payment Gateways Available", "")).strip(),
+            "qr_payment": str(r.get("QR Code Payment Available", "")).strip(),
+            "qr_turnover": qr_t,
+            "booker": str(r.get("Booker Name", "")).strip(),
+            "username": str(r.get("Username", "")).strip(),
+            "submitted_at": sub_at,
+            "date": date_only,
+        })
+
+
+    return jsonify({
+        "total_visits": total_visits,
+        "total_sales": total_sales,
+        "avg_sales": (total_sales / total_visits) if total_visits > 0 else 0,
+        "unique_shops_count": len(unique_shops),
+        "unique_bookers_count": len(unique_bookers),
+        "qr_count": qr_count,
+        "qr_adoption_rate": round((qr_count / total_visits * 100), 1) if total_visits > 0 else 0,
+        "qr_turnover_sum": qr_turnover_sum,
+        "total_universe_shops": total_universe_shops,
+        "universe_shops_by_partner": universe_shops_by_partner,
+        "partner_counts": partner_counts,
+        "top_brands_counts": top_brands_counts,
+        "competitor_counts": competitor_counts,
+        "payment_counts": payment_counts,
+        "area_summary": area_summary_list[:15],
+        "raw_scoped_records": sanitized_scoped,
+    })
 
 
 @app.route("/api/submissions")
