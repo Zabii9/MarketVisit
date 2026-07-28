@@ -1,15 +1,6 @@
 const CACHE_NAME = 'marketvisit-v1';
 
 self.addEventListener('install', (evt) => {
-  evt.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll([
-        '/',
-        '/dashboard',
-        '/static/manifest.json'
-      ]);
-    })
-  );
   self.skipWaiting();
 });
 

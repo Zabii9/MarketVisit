@@ -678,8 +678,12 @@ def _submission_id(shop_name: str, submitted_at: datetime) -> str:
 
 
 # Initialize Flask App
-app = Flask(__name__)
-app.secret_key = _secret("flask_secret_key", os.urandom(24))
+app = Flask(__name__, static_folder="static", static_url_path="/static")
+secret_key_val = _secret("flask_secret_key") or os.getenv("FLASK_SECRET_KEY") or os.getenv("SECRET_KEY") or "market-visit-secure-key-2026-cbl-tapal-olpers"
+app.secret_key = secret_key_val
+app.config["SESSION_PERMANENT"] = True
+app.config["PERMANENT_SESSION_LIFETIME"] = 86400 * 30
+
 
 
 @app.route("/uploads/<path:filename>")
