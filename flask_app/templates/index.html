@@ -360,14 +360,20 @@
         });
 
         if (codes.length > 0) {
-            if (IS_PARTNER || codes.length === 1) {
+            if (codes.length === 1) {
                 partnerSelect.value = codes[0];
                 if (IS_PARTNER) {
                     partnerSelect.disabled = true;
+                } else {
+                    partnerSelect.disabled = false;
                 }
                 onPartnerChange();
             } else {
                 partnerSelect.disabled = false;
+                if (IS_PARTNER) {
+                    partnerSelect.value = codes[0];
+                    onPartnerChange();
+                }
             }
         } else {
             partnerSelect.disabled = false;
