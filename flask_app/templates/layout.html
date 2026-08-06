@@ -709,6 +709,15 @@
                 gap: 0.15rem;
                 flex: 1;
                 cursor: pointer;
+                background: transparent !important;
+                border: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                outline: none !important;
+                box-shadow: none !important;
+                -webkit-appearance: none !important;
+                appearance: none !important;
+                -webkit-tap-highlight-color: transparent;
             }
 
             .mobile-nav-item .nav-icon {
@@ -779,8 +788,8 @@
             <span class="nav-label">Users</span>
         </a>
         {% endif %}
-        <button class="mobile-nav-item" onclick="toggleTheme()" type="button">
-            <span class="nav-icon">🌙</span>
+        <button class="mobile-nav-item" onclick="toggleTheme()" type="button" id="mobileThemeBtn">
+            <span class="nav-icon" id="mobileThemeIcon">🌙</span>
             <span class="nav-label">Theme</span>
         </button>
     </div>
@@ -792,7 +801,12 @@
             const current = html.getAttribute('data-theme');
             const next = current === 'dark' ? 'light' : 'dark';
             html.setAttribute('data-theme', next);
-            document.getElementById('themeBtn').innerText = next === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
+            if (document.getElementById('themeBtn')) {
+                document.getElementById('themeBtn').innerText = next === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
+            }
+            if (document.getElementById('mobileThemeIcon')) {
+                document.getElementById('mobileThemeIcon').innerText = next === 'dark' ? '☀️' : '🌙';
+            }
             localStorage.setItem('theme', next);
         }
 
@@ -800,7 +814,12 @@
         (function () {
             const saved = localStorage.getItem('theme') || 'light';
             document.documentElement.setAttribute('data-theme', saved);
-            document.getElementById('themeBtn').innerText = saved === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
+            if (document.getElementById('themeBtn')) {
+                document.getElementById('themeBtn').innerText = saved === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
+            }
+            if (document.getElementById('mobileThemeIcon')) {
+                document.getElementById('mobileThemeIcon').innerText = saved === 'dark' ? '☀️' : '🌙';
+            }
         })();
 
         // Register Mobile PWA Service Worker

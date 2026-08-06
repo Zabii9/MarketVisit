@@ -66,10 +66,10 @@ COMPETITOR_BRANDS_BY_PARTNER = {
 }
 
 TOP_BRANDS_BY_PARTNER = {
-    "D70002202": ["Olper's Milk", "Tarang", "TBA", "Others"],
-    "D70002246": ["Olper's Milk", "Tarang", "TBA", "Others"],
-    "Tapal": ["Tezdum", "Tapal", "Other"],
-    "D0573": ["Oreo", "Gala", "Prince", "Other"],
+    "D70002202": ["Olper's Milk", "Tarang", "TBA","Flavoured Milk","Tarka","Dairy Omung","ProCal","Powder Milk", "Others"],
+    "D70002246": ["Olper's Milk", "Tarang", "TBA","Flavoured Milk","Tarka","Dairy Omung","ProCal","Powder Milk", "Others"],
+    "Tapal": ["Tezdum", "Tapal","Danedar","Green Tea","Family Mixture","Mezban","Chenak", "Other"],
+    "D0573": ["Prince", "Tuc", "Zeera Plus","Candi","Candi","Oreo","Tiger","Bakeri","Cadbury","Wheatable","Milco Lu","Plus","Belvita", "Other"],
 }
 
 BASE_HEADERS = [
@@ -1127,6 +1127,19 @@ def api_analytics():
         sub_at = str(r.get("Submitted At", "")).strip()
         date_only = sub_at[:10] if len(sub_at) >= 10 else ""
 
+        lat_raw = r.get("User Latitude", r.get("Latitude", r.get("lat", "")))
+        lng_raw = r.get("User Longitude", r.get("Longitude", r.get("lng", "")))
+
+        try:
+            lat_val = float(str(lat_raw).strip()) if str(lat_raw).strip() not in ("", "0", "None", "null") else None
+        except Exception:
+            lat_val = None
+
+        try:
+            lng_val = float(str(lng_raw).strip()) if str(lng_raw).strip() not in ("", "0", "None", "null") else None
+        except Exception:
+            lng_val = None
+
         sanitized_scoped.append({
             "partner": str(r.get("Partner Name", "")).strip(),
             "shop": str(r.get("Shop Name", "")).strip(),
@@ -1143,8 +1156,11 @@ def api_analytics():
             "username": str(r.get("Username", "")).strip(),
             "submitted_at": sub_at,
             "date": date_only,
+            "lat": lat_val,
+            "lng": lng_val,
         })
 
+    user_time_spending = _calculate_user_time_spending(scoped_records)
 
     return jsonify({
         "total_visits": total_visits,
@@ -1163,7 +1179,136 @@ def api_analytics():
         "payment_counts": payment_counts,
         "area_summary": area_summary_list[:15],
         "raw_scoped_records": sanitized_scoped,
+        "user_time_spending": user_time_spending,
     })
+
+
+def _parse_submitted_at(sub_at_str: str) -> datetime | None:
+    s = str(sub_at_str or "").strip()
+    if not s:
+        return None
+    s_clean = s.replace("T", " ")
+    if len(s_clean) >= 19:
+        try:
+            return datetime.strptime(s_clean[:19], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            pass
+    if len(s) >= 10:
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d")
+        except ValueError:
+            pass
+    return None
+
+
+def _calculate_user_time_spending(scoped_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+
+    for r in scoped_records:
+        sub_at = str(r.get("Submitted At", "")).strip()
+        dt = _parse_submitted_at(sub_at)
+        date_str = dt.strftime("%Y-%m-%d") if dt else (sub_at[:10] if len(sub_at) >= 10 else "")
+        if not date_str or len(date_str) < 10:
+            continue
+
+        username = str(r.get("Username", "")).strip()
+        booker = str(r.get("Booker Name", "")).strip()
+        user_key = username or booker or "Unknown User"
+        partner = str(r.get("Partner Name", "")).strip()
+
+        key = (user_key, date_str)
+        if key not in grouped:
+            grouped[key] = []
+        
+        grouped[key].append({
+            "dt": dt,
+            "submitted_at": sub_at,
+            "username": username,
+            "booker": booker,
+            "partner": partner,
+            "area": str(r.get("Area", "")).strip(),
+            "sub_area": str(r.get("Sub Area", "")).strip(),
+            "shop": str(r.get("Shop Name", "")).strip(),
+        })
+
+    user_time_spending = []
+    for (user_key, date_str), recs in grouped.items():
+        valid_recs = [r for r in recs if r["dt"] is not None]
+        valid_recs.sort(key=lambda x: x["dt"])
+
+        partner_name = recs[0]["partner"] if recs else ""
+        booker_name = recs[0]["booker"] if recs else ""
+        username = recs[0]["username"] if recs else ""
+
+        areas_list: list[str] = []
+        for item in recs:
+            a_raw = str(item.get("area", "")).strip()
+            if a_raw:
+                a_clean = a_raw.split("[")[0].strip()
+                if a_clean and a_clean not in areas_list:
+                    areas_list.append(a_clean)
+
+        visits_count = len(recs)
+        
+        if valid_recs and len(valid_recs) >= 1:
+            first_dt = valid_recs[0]["dt"]
+            last_dt = valid_recs[-1]["dt"]
+            
+            first_time = first_dt.strftime("%I:%M %p")
+            last_time = last_dt.strftime("%I:%M %p")
+            
+            span_minutes = int((last_dt - first_dt).total_seconds() / 60)
+            if span_minutes < 0:
+                span_minutes = 0
+
+            active_minutes = 15
+            for i in range(1, len(valid_recs)):
+                gap = int((valid_recs[i]["dt"] - valid_recs[i-1]["dt"]).total_seconds() / 60)
+                if gap > 0:
+                    active_minutes += min(gap, 60)
+                else:
+                    active_minutes += 5
+        else:
+            first_time = "—"
+            last_time = "—"
+            span_minutes = 0
+            active_minutes = visits_count * 15
+
+        span_hours = round(span_minutes / 60.0, 2)
+        active_hours = round(active_minutes / 60.0, 2)
+
+        span_h = span_minutes // 60
+        span_m = span_minutes % 60
+        span_formatted = f"{span_h}h {span_m}m" if span_h > 0 else f"{span_m}m"
+
+        act_h = active_minutes // 60
+        act_m = active_minutes % 60
+        active_formatted = f"{act_h}h {act_m}m" if act_h > 0 else f"{act_m}m"
+
+        avg_interval = round(span_minutes / (visits_count - 1), 1) if visits_count > 1 else 0.0
+
+        user_time_spending.append({
+            "date": date_str,
+            "month": date_str[:7],
+            "user": user_key,
+            "username": username,
+            "booker": booker_name,
+            "partner": partner_name,
+            "areas": areas_list,
+            "first_visit_time": first_time,
+            "last_visit_time": last_time,
+            "span_minutes": span_minutes,
+            "span_hours": span_hours,
+            "span_formatted": span_formatted,
+            "active_minutes": active_minutes,
+            "active_hours": active_hours,
+            "active_formatted": active_formatted,
+            "visit_count": visits_count,
+            "avg_interval_minutes": avg_interval,
+        })
+
+    user_time_spending.sort(key=lambda x: (x["date"], x["user"]), reverse=True)
+    return user_time_spending
 
 
 @app.route("/api/submissions")

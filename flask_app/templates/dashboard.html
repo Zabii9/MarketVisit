@@ -2,6 +2,9 @@
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
     .kpi-grid {
         display: grid;
@@ -42,22 +45,20 @@
     }
     .charts-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(540px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         gap: 1.25rem;
         margin-bottom: 1.5rem;
     }
 
-    @media (max-width: 500px) {
-        .charts-grid {
-            grid-template-columns: 1fr;
-        }
-    }
     .chart-card {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
         border-radius: 16px;
         padding: 1.25rem;
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
     }
     .chart-header {
         font-size: 1rem;
@@ -72,18 +73,81 @@
         position: relative;
         height: 260px;
         width: 100%;
+        max-width: 100%;
     }
     .filter-bar {
+        position: sticky;
+        top: 0.75rem;
+        z-index: 1000;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 1rem;
+        gap: 0.75rem;
         margin-bottom: 1.5rem;
         flex-wrap: wrap;
         background: var(--card-bg);
         padding: 0.85rem 1.25rem;
         border-radius: 16px;
         border: 1px solid var(--border-color);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        transition: top 0.2s ease, padding 0.2s ease;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+    .filter-controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .filter-select {
+        width: auto;
+        min-width: 165px;
+        padding: 0.4rem 0.8rem;
+        font-size: 0.85rem;
+    }
+    @media (max-width: 768px) {
+        .filter-bar {
+            top: 0.5rem;
+            padding: 0.65rem 0.9rem;
+            gap: 0.5rem;
+            border-radius: 12px;
+        }
+        .filter-controls {
+            width: 100%;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 0.5rem;
+        }
+        .filter-group {
+            width: 100%;
+            justify-content: space-between;
+        }
+        .filter-select {
+            width: 55% !important;
+            min-width: 0 !important;
+            padding: 0.35rem 0.5rem;
+            font-size: 0.8rem;
+        }
+        .charts-grid {
+            grid-template-columns: 1fr !important;
+        }
+        .chart-card {
+            padding: 0.85rem !important;
+        }
+        .chart-container {
+            height: 220px !important;
+        }
+        .time-spending-grid {
+            grid-template-columns: 1fr !important;
+        }
     }
     .scope-badge {
         color: #64b5f6;
@@ -92,6 +156,32 @@
         display: inline-flex;
         align-items: center;
         gap: 0.4rem;
+    }
+    .datalabel-toggle {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        user-select: none;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 0.2rem 0.5rem;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        transition: all 0.2s ease;
+    }
+    .datalabel-toggle:hover {
+        color: var(--text-primary);
+        border-color: #64b5f6;
+    }
+    .datalabel-toggle input[type="checkbox"] {
+        cursor: pointer;
+        accent-color: #64b5f6;
+        width: 0.85rem;
+        height: 0.85rem;
+        margin: 0;
     }
 </style>
 {% endblock %}
@@ -117,11 +207,20 @@
         {% endif %}
     </div>
 
-    <div style="display: flex; align-items: center; gap: 0.6rem;">
-        <label for="partnerFilter" style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary);">Filter Partner:</label>
-        <select id="partnerFilter" class="form-control" style="width: auto; min-width: 180px; padding: 0.4rem 0.8rem; font-size: 0.85rem;" onchange="applyPartnerFilter()">
-            <option value="ALL">All Assigned Partners</option>
-        </select>
+    <div class="filter-controls">
+        <div class="filter-group">
+            <label for="monthFilter" style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary);">Filter Month-Year:</label>
+            <select id="monthFilter" class="form-control filter-select" onchange="applyGlobalDashboardFilters()">
+                <option value="ALL">All Months</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="partnerFilter" style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary);">Filter Partner:</label>
+            <select id="partnerFilter" class="form-control filter-select" onchange="applyGlobalDashboardFilters()">
+                <option value="ALL">All Assigned Partners</option>
+            </select>
+        </div>
     </div>
 </div>
 
@@ -170,7 +269,10 @@
     <div class="chart-card">
         <div class="chart-header">
             <span>📈 Daily Visit Submissions Trend by Partner</span>
-            <span style="font-size: 0.8rem; color: var(--text-secondary);">Submissions Over Time</span>
+            <label class="datalabel-toggle">
+                <input type="checkbox" checked onchange="toggleChartDataLabels('chartDailyTrend', this.checked)">
+                <span>Data Labels</span>
+            </label>
         </div>
         <div class="chart-container" style="height: 280px;">
             <canvas id="chartDailyTrend"></canvas>
@@ -180,7 +282,10 @@
     <div class="chart-card">
         <div class="chart-header">
             <span>👥 Daily Visit Submissions Trend by Username</span>
-            <span style="font-size: 0.8rem; color: var(--text-secondary);">User Activity Over Time</span>
+            <label class="datalabel-toggle">
+                <input type="checkbox" checked onchange="toggleChartDataLabels('chartDailyUserTrend', this.checked)">
+                <span>Data Labels</span>
+            </label>
         </div>
 
         <div class="chart-container" style="height: 280px;">
@@ -194,7 +299,10 @@
     <div class="chart-card">
         <div class="chart-header">
             <span>📊 Visits by Partner</span>
-            <span style="font-size: 0.8rem; color: var(--text-secondary);">Market Share</span>
+            <label class="datalabel-toggle">
+                <input type="checkbox" checked onchange="toggleChartDataLabels('chartPartner', this.checked)">
+                <span>Data Labels</span>
+            </label>
         </div>
         <div class="chart-container">
             <canvas id="chartPartner"></canvas>
@@ -204,7 +312,10 @@
     <div class="chart-card">
         <div class="chart-header">
             <span>🏆 Top Brands Observed</span>
-            <span style="font-size: 0.8rem; color: var(--text-secondary);">Availability Count</span>
+            <label class="datalabel-toggle">
+                <input type="checkbox" checked onchange="toggleChartDataLabels('chartTopBrands', this.checked)">
+                <span>Data Labels</span>
+            </label>
         </div>
         <div class="chart-container">
             <canvas id="chartTopBrands"></canvas>
@@ -214,7 +325,10 @@
     <div class="chart-card">
         <div class="chart-header">
             <span>🥊 Competitor Brand Presence</span>
-            <span style="font-size: 0.8rem; color: var(--text-secondary);">Market Penetration</span>
+            <label class="datalabel-toggle">
+                <input type="checkbox" checked onchange="toggleChartDataLabels('chartCompetitors', this.checked)">
+                <span>Data Labels</span>
+            </label>
         </div>
         <div class="chart-container">
             <canvas id="chartCompetitors"></canvas>
@@ -224,10 +338,98 @@
     <div class="chart-card">
         <div class="chart-header">
             <span>💳 Payment Gateway Breakdown</span>
-            <span style="font-size: 0.8rem; color: var(--text-secondary);">Retailer Options</span>
+            <label class="datalabel-toggle">
+                <input type="checkbox" checked onchange="toggleChartDataLabels('chartPayments', this.checked)">
+                <span>Data Labels</span>
+            </label>
         </div>
         <div class="chart-container">
             <canvas id="chartPayments"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- ⏱️ User-Wise Time Spending Analytics (Current Month) -->
+<div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; padding: 1.25rem; margin-bottom: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem; padding-bottom: 0.8rem; border-bottom: 1px solid var(--border-color);">
+        <div>
+            <h2 style="font-size: 1.15rem; font-weight: 800; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                ⏱️ User Time Spending Analytics
+                <span id="timeMonthBadge" style="background: rgba(100, 181, 246, 0.15); color: #64b5f6; border: 1px solid rgba(100, 181, 246, 0.3); font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 12px;">Current Month</span>
+            </h2>
+            <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0.2rem 0 0 0;">Date-wise daily field work span, start/end visit times, and active field hours per user.</p>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <label for="timeUserSelect" style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary);">Filter User:</label>
+                <select id="timeUserSelect" class="form-control" style="width: auto; min-width: 150px; padding: 0.35rem 0.7rem; font-size: 0.82rem;" onchange="renderTimeSpendingSection()">
+                    <option value="ALL">All Active Users</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Time Spending KPI Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">⏱️ Avg Daily Field Span</div>
+            <div id="kpiAvgDailySpan" style="font-size: 1.4rem; font-weight: 800; color: #64b5f6; margin-top: 0.3rem;">0h 0m</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">First to last visit diff</div>
+        </div>
+        <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">⚡ Avg Active Field Hours</div>
+            <div id="kpiAvgActiveTime" style="font-size: 1.4rem; font-weight: 800; color: #2ecc71; margin-top: 0.3rem;">0h 0m</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">Capped visit intervals</div>
+        </div>
+        <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">📅 Total Field Days</div>
+            <div id="kpiTotalFieldDays" style="font-size: 1.4rem; font-weight: 800; color: #a78bfa; margin-top: 0.3rem;">0 Days</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">Field days in month</div>
+        </div>
+        <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">👥 Active Field Force</div>
+            <div id="kpiActiveUsersCount" style="font-size: 1.4rem; font-weight: 800; color: #f2994a; margin-top: 0.3rem;">0 Users</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">Reporting field reps</div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="time-spending-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+        <div class="chart-card" style="padding: 1rem;">
+            <div class="chart-header" style="font-size: 0.9rem; margin-bottom: 0.8rem;">
+                <span>📈 User-Wise Daily Field Hours Spent</span>
+                <label class="datalabel-toggle">
+                    <input type="checkbox" checked onchange="toggleChartDataLabels('chartTimeSpendingDaily', this.checked)">
+                    <span>Data Labels</span>
+                </label>
+            </div>
+            <div class="chart-container" style="height: 250px;">
+                <canvas id="chartTimeSpendingDaily"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card" style="padding: 1rem;">
+            <div class="chart-header" style="font-size: 0.9rem; margin-bottom: 0.8rem;">
+                <span>📊 Monthly Total Field Hours by User</span>
+                <label class="datalabel-toggle">
+                    <input type="checkbox" checked onchange="toggleChartDataLabels('chartTimeSpendingUserTotal', this.checked)">
+                    <span>Data Labels</span>
+                </label>
+            </div>
+            <div class="chart-container" style="height: 250px;">
+                <canvas id="chartTimeSpendingUserTotal"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Time Spending Table -->
+    <div style="overflow-x: auto;">
+        <div style="font-size: 0.9rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.8rem;">
+            📋 Daily Time Spending Log (Current Month Date Basis)
+        </div>
+        <div id="timeSpendingTableContainer">
+            <p style="color: var(--text-secondary); font-size: 0.85rem;">Loading time spending records...</p>
         </div>
     </div>
 </div>
@@ -241,12 +443,208 @@
         <p style="color: var(--text-secondary); font-size: 0.9rem;">Loading analytics data…</p>
     </div>
 </div>
+
+<!-- 🗺️ Interactive Visit Map Section -->
+<div class="card" style="padding: 1.25rem; margin-bottom: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05); background: var(--card-bg); border-radius: 16px; border: 1px solid var(--border-color);">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; padding-bottom: 0.8rem; border-bottom: 1px solid var(--border-color);">
+        <div>
+            <h2 style="font-size: 1.15rem; font-weight: 800; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                🗺️ Market Visit Locations Map
+                <span id="mapCountBadge" style="background: rgba(100, 181, 246, 0.15); color: #64b5f6; border: 1px solid rgba(100, 181, 246, 0.3); font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 12px;">0 Pins</span>
+            </h2>
+            <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0.2rem 0 0 0;">Geographic distribution of market visits color-coded by User or Date.</p>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <label for="mapColorMode" style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary);">Color Pins By:</label>
+                <select id="mapColorMode" class="form-control" style="width: auto; min-width: 150px; padding: 0.35rem 0.7rem; font-size: 0.82rem;" onchange="if(latestFilteredRecords) renderMarketMap(latestFilteredRecords)">
+                    <option value="user" selected>👤 User (Username)</option>
+                    <option value="date">📅 Visit Date</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div id="mapContainer" style="height: 420px; width: 100%; border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color); position: relative; z-index: 1;"></div>
+
+    <div id="mapLegend" style="margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.78rem; font-weight: 600; color: var(--text-primary); padding: 0.65rem 1rem; background: rgba(0,0,0,0.06); border-radius: 10px; border: 1px solid var(--border-color);">
+        <!-- Legend items injected by JS -->
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+    if (typeof ChartDataLabels !== 'undefined') {
+        Chart.register(ChartDataLabels);
+    }
+
     let globalAnalyticsData = null;
     let chartInstances = {};
+    let leafletMap = null;
+    let leafletMarkersGroup = null;
+    let latestFilteredRecords = null;
+
+    const MAP_PALETTE = [
+        '#2ecc71', '#3498db', '#e67e22', '#9b59b6', '#e74c3c', 
+        '#1abc9c', '#f1c40f', '#00cec9', '#fd79a8', '#6c5ce7',
+        '#ff7675', '#74b9ff', '#55efc4', '#ffeaa7', '#a29bfe'
+    ];
+
+    function getStringHash(str) {
+        let hash = 0;
+        const s = String(str || '');
+        for (let i = 0; i < s.length; i++) {
+            hash = s.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        return Math.abs(hash);
+    }
+
+    function createCustomPinIcon(color) {
+        const svgHtml = `
+            <svg width="26" height="36" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 0C5.37 0 0 5.37 0 12C0 21 12 32 12 32C12 32 24 21 24 12C24 5.37 18.63 0 12 0Z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
+                <circle cx="12" cy="12" r="4.5" fill="#ffffff"/>
+            </svg>
+        `;
+        return L.divIcon({
+            className: 'custom-map-pin',
+            html: svgHtml,
+            iconSize: [26, 36],
+            iconAnchor: [13, 36],
+            popupAnchor: [0, -32]
+        });
+    }
+
+    function renderMarketMap(records) {
+        latestFilteredRecords = records;
+        const container = document.getElementById('mapContainer');
+        if (!container || typeof L === 'undefined') return;
+
+        if (!leafletMap) {
+            leafletMap = L.map('mapContainer').setView([24.8607, 67.0011], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(leafletMap);
+            leafletMarkersGroup = L.layerGroup().addTo(leafletMap);
+        } else {
+            leafletMarkersGroup.clearLayers();
+        }
+
+        const colorMode = document.getElementById('mapColorMode') ? document.getElementById('mapColorMode').value : 'user';
+        const colorMap = {};
+        let colorIdx = 0;
+
+        const bounds = [];
+        let pinCount = 0;
+
+        records.forEach((r, idx) => {
+            let lat = Number(r.lat);
+            let lng = Number(r.lng);
+
+            // Synthetic coordinate fallback for legacy demo records missing GPS
+            if (!lat || !lng || isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+                const seed = getStringHash((r.shop || '') + (r.area || '') + (r.code || '') + idx);
+                const latOffset = ((seed % 140) - 70) * 0.0015;
+                const lngOffset = (((seed * 7) % 140) - 70) * 0.0015;
+                lat = 24.8607 + latOffset;
+                lng = 67.0011 + lngOffset;
+            }
+
+            const userKey = (r.username || r.booker || 'Unknown Rep').trim();
+            const dateKey = (r.date || 'Unknown Date').trim();
+            const activeKey = colorMode === 'user' ? userKey : dateKey;
+
+            if (!colorMap[activeKey]) {
+                colorMap[activeKey] = MAP_PALETTE[colorIdx % MAP_PALETTE.length];
+                colorIdx++;
+            }
+            const pinColor = colorMap[activeKey];
+
+            const cleanArea = (r.area || 'Unspecified').split('[')[0].trim();
+            const cleanSubArea = (r.sub_area || 'Unspecified').split('[')[0].trim();
+
+            const popupContent = `
+                <div style="font-family: Inter, sans-serif; font-size: 0.82rem; padding: 0.2rem; min-width: 190px;">
+                    <div style="font-weight: 800; font-size: 0.95rem; color: #2d3748; margin-bottom: 0.2rem;">
+                        📍 ${r.shop || 'Store Visit'}
+                    </div>
+                    ${r.code ? `<div style="font-size: 0.72rem; color: #718096; margin-bottom: 0.4rem;">Code: <strong>${r.code}</strong></div>` : ''}
+                    
+                    <div style="border-top: 1px solid #e2e8f0; padding-top: 0.4rem; margin-top: 0.4rem; line-height: 1.5; color: #4a5568;">
+                        <div>👤 <strong>User:</strong> ${userKey}</div>
+                        <div>📅 <strong>Date:</strong> ${r.date || '—'} ${r.submitted_at ? `<span style="color:#718096; font-size:0.75rem;">(${r.submitted_at.length >= 16 ? r.submitted_at.substring(11, 16) : ''})</span>` : ''}</div>
+                        <div>🏢 <strong>Partner:</strong> ${r.partner || '—'}</div>
+                        <div>🗺️ <strong>Area:</strong> ${cleanArea} ${cleanSubArea ? `→ ${cleanSubArea}` : ''}</div>
+                        ${r.sales > 0 ? `<div style="color: #2ecc71; font-weight: 700; margin-top: 0.2rem;">💰 Sales: PKR ${Number(r.sales).toLocaleString()}</div>` : ''}
+                    </div>
+                </div>
+            `;
+
+            const marker = L.marker([lat, lng], { icon: createCustomPinIcon(pinColor) })
+                .bindPopup(popupContent);
+            
+            leafletMarkersGroup.addLayer(marker);
+            bounds.push([lat, lng]);
+            pinCount++;
+        });
+
+        document.getElementById('mapCountBadge').textContent = `${pinCount} Pins`;
+
+        if (bounds.length > 0) {
+            leafletMap.fitBounds(bounds, { padding: [35, 35], maxZoom: 14 });
+        }
+
+        // Render Legend
+        const legendEl = document.getElementById('mapLegend');
+        if (legendEl) {
+            let legendHtml = `<span style="color: var(--text-secondary); margin-right: 0.4rem;">Map Legend (${colorMode === 'user' ? 'Users' : 'Dates'}):</span>`;
+            Object.keys(colorMap).forEach(key => {
+                const col = colorMap[key];
+                legendHtml += `
+                    <span style="display: inline-flex; align-items: center; gap: 0.35rem; margin-right: 0.5rem;">
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: ${col}; display: inline-block;"></span>
+                        ${key}
+                    </span>
+                `;
+            });
+            legendEl.innerHTML = legendHtml;
+        }
+        setTimeout(() => {
+            if (leafletMap) leafletMap.invalidateSize();
+        }, 200);
+    }
+    let chartDataLabelVisibility = {
+        'chartDailyTrend': true,
+        'chartDailyUserTrend': true,
+        'chartPartner': true,
+        'chartTopBrands': true,
+        'chartCompetitors': true,
+        'chartPayments': true,
+        'chartTimeSpendingDaily': true,
+        'chartTimeSpendingUserTotal': true
+    };
+
+    function getDatalabelDisplayFn(canvasId) {
+        return function(context) {
+            if (chartDataLabelVisibility[canvasId] === false) return false;
+            const val = context.dataset.data[context.dataIndex];
+            return val !== undefined && val !== null && val > 0;
+        };
+    }
+
+    function toggleChartDataLabels(canvasId, isShown) {
+        chartDataLabelVisibility[canvasId] = isShown;
+        const chart = chartInstances[canvasId];
+        if (chart) {
+            if (!chart.options.plugins) chart.options.plugins = {};
+            if (!chart.options.plugins.datalabels) chart.options.plugins.datalabels = {};
+            chart.options.plugins.datalabels.display = isShown ? getDatalabelDisplayFn(canvasId) : false;
+            chart.update();
+        }
+    }
 
     const PALETTE = ['#64b5f6', '#f2994a', '#ff6b6b', '#8fd5a5', '#9b59b6', '#2ecc71', '#e67e22', '#1abc9c'];
 
@@ -280,6 +678,17 @@
                         display: type === 'doughnut' || type === 'pie',
                         position: 'bottom',
                         labels: { color: textColor, font: { family: 'Inter, sans-serif', size: 11 } }
+                    },
+                    datalabels: {
+                        display: getDatalabelDisplayFn(canvasId),
+                        color: type === 'doughnut' ? '#ffffff' : textColor,
+                        anchor: type === 'doughnut' ? 'center' : 'end',
+                        align: type === 'doughnut' ? 'center' : (isHorizontal ? 'right' : 'top'),
+                        offset: type === 'doughnut' ? 0 : 2,
+                        font: { family: 'Inter, sans-serif', weight: 'bold', size: 10 },
+                        formatter: function(value) {
+                            return (typeof value === 'number') ? value.toLocaleString() : value;
+                        }
                     }
                 },
                 scales: (type === 'bar') ? {
@@ -374,6 +783,17 @@
                         display: true,
                         position: 'top',
                         labels: { color: textColor, font: { family: 'Inter, sans-serif', size: 11 } }
+                    },
+                    datalabels: {
+                        display: getDatalabelDisplayFn('chartDailyTrend'),
+                        color: textColor,
+                        anchor: 'end',
+                        align: 'top',
+                        offset: 2,
+                        font: { family: 'Inter, sans-serif', weight: 'bold', size: 10 },
+                        formatter: function(value) {
+                            return value;
+                        }
                     }
                 },
                 scales: {
@@ -448,6 +868,17 @@
                         display: true,
                         position: 'top',
                         labels: { color: textColor, font: { family: 'Inter, sans-serif', size: 11 } }
+                    },
+                    datalabels: {
+                        display: getDatalabelDisplayFn('chartDailyUserTrend'),
+                        color: textColor,
+                        anchor: 'end',
+                        align: 'top',
+                        offset: 2,
+                        font: { family: 'Inter, sans-serif', weight: 'bold', size: 10 },
+                        formatter: function(value) {
+                            return value;
+                        }
                     }
                 },
                 scales: {
@@ -476,6 +907,9 @@
 
         document.getElementById('partnerBreakdownSection').style.display = 'block';
 
+        const selMonthVal = document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : 'ALL';
+        const timeRecords = (globalAnalyticsData && globalAnalyticsData.user_time_spending) ? globalAnalyticsData.user_time_spending : [];
+
         partnersSet.forEach((pName, idx) => {
             if (!pName) return;
             const pLower = pName.trim().toLowerCase();
@@ -484,22 +918,54 @@
             const matchedKey = Object.keys(uniMap).find(k => k.trim().toLowerCase() === pLower);
             const universeShops = matchedKey ? uniMap[matchedKey] : (uniMap[pName] || 0);
 
-            // Visited shops and sales
+            // Visited shops and distinct field dates
             const pRecords = allScopedRecords.filter(r => (r.partner || '').trim().toLowerCase() === pLower);
             const vShopsSet = new Set();
-            let pSales = 0;
+            const pDatesSet = new Set();
 
             pRecords.forEach(r => {
-                pSales += Number(r.sales || 0);
                 if (r.shop || r.code) vShopsSet.add(`${r.shop}|${r.code}`);
+                const d = r.date || (r.submitted_at ? r.submitted_at.substring(0, 10) : '');
+                if (d && d.length === 10) pDatesSet.add(d);
             });
 
             const vCount = vShopsSet.size;
+            const fieldDaysCount = pDatesSet.size;
             const covPct = universeShops > 0 ? ((vCount / universeShops) * 100).toFixed(1) : 0;
             const accentColor = PALETTE[idx % PALETTE.length];
 
+            // Monthly Total Field Hours by User for this partner
+            let partnerActiveHours = 0;
+            timeRecords.forEach(tr => {
+                const trPartner = (tr.partner || '').trim().toLowerCase();
+                const matchesPartner = trPartner === pLower || trPartner.includes(pLower) || pLower.includes(trPartner);
+                const matchesMonth = (selMonthVal === 'ALL') || (tr.date && tr.date.startsWith(selMonthVal));
+                if (matchesPartner && matchesMonth) {
+                    partnerActiveHours += Number(tr.active_hours || tr.span_hours || 0);
+                }
+            });
+
+            // Fallback for partner time tracking if partner name differs slightly
+            if (partnerActiveHours === 0 && pRecords.length > 0) {
+                const pUserDateSet = new Set();
+                pRecords.forEach(r => {
+                    const u = (r.username || r.booker || '').trim();
+                    const d = r.date || (r.submitted_at ? r.submitted_at.substring(0, 10) : '');
+                    if (u && d) pUserDateSet.add(`${u}|${d}`);
+                });
+                timeRecords.forEach(tr => {
+                    const u = (tr.user || '').trim();
+                    const d = (tr.date || '').trim();
+                    if (pUserDateSet.has(`${u}|${d}`)) {
+                        partnerActiveHours += Number(tr.active_hours || tr.span_hours || 0);
+                    }
+                });
+            }
+
+            const formattedHours = partnerActiveHours > 0 ? partnerActiveHours.toFixed(1) + ' hrs' : '0.0 hrs';
+
             const cardHtml = `
-                <div class="kpi-card" style="border-left: 4px solid ${accentColor}; cursor: pointer;" onclick="document.getElementById('partnerFilter').value='${pName}'; applyPartnerFilter();">
+                <div class="kpi-card" style="border-left: 4px solid ${accentColor}; cursor: pointer;" onclick="document.getElementById('partnerFilter').value='${pName}'; applyGlobalDashboardFilters();">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <strong style="color: var(--text-primary); font-size: 0.92rem;">${pName}</strong>
                         <span style="background: rgba(143, 213, 165, 0.15); color: #8fd5a5; padding: 0.18rem 0.55rem; border-radius: 12px; font-size: 0.75rem; font-weight: 700;">
@@ -512,9 +978,9 @@
                     <div style="height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin-bottom: 0.65rem;">
                         <div style="width: ${Math.min(covPct, 100)}%; height: 100%; background: ${accentColor}; border-radius: 3px;"></div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.76rem; color: var(--text-secondary);">
-                        <span>Visits: <strong style="color: var(--text-primary);">${pRecords.length}</strong></span>
-                        <span>Sales: <strong style="color: #8fd5a5;">PKR ${pSales.toLocaleString()}</strong></span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem; color: var(--text-secondary); flex-wrap: wrap; gap: 0.3rem;">
+                        <span>Visits: <strong style="color: var(--text-primary);">${pRecords.length}</strong> <span style="opacity:0.4;">|</span> Field Days: <strong style="color: #64b5f6;">${fieldDaysCount}</strong></span>
+                        <span>Field Hours: <strong style="color: #2ecc71;">${formattedHours}</strong></span>
                     </div>
                 </div>
             `;
@@ -522,10 +988,87 @@
         });
     }
 
-    function updateDashboardUI(records, selectedPartner) {
+    function initGlobalMonthFilter() {
+        const monthSelect = document.getElementById('monthFilter');
+        if (!monthSelect || !globalAnalyticsData) return;
+
+        monthSelect.innerHTML = '<option value="ALL">All Months</option>';
+
+        const records = globalAnalyticsData.raw_scoped_records || [];
+        const monthsSet = new Set();
+
+        records.forEach(r => {
+            const m = (r.date && r.date.length >= 7) ? r.date.substring(0, 7) : ((r.submitted_at && r.submitted_at.length >= 7) ? r.submitted_at.substring(0, 7) : '');
+            if (m && m.length === 7) monthsSet.add(m);
+        });
+
+        (globalAnalyticsData.user_time_spending || []).forEach(r => {
+            if (r.month && r.month.length === 7) monthsSet.add(r.month);
+        });
+
+        const currentCalendarMonth = new Date().toISOString().substring(0, 7);
+        monthsSet.add(currentCalendarMonth);
+
+        const sortedMonths = Array.from(monthsSet).sort().reverse();
+        sortedMonths.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            const [y, mm] = m.split('-');
+            const dObj = new Date(parseInt(y), parseInt(mm) - 1, 1);
+            const label = dObj.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+            opt.textContent = (m === currentCalendarMonth) ? `${label} (Current)` : label;
+            monthSelect.appendChild(opt);
+        });
+
+        monthSelect.value = currentCalendarMonth;
+        if (!monthSelect.value && monthSelect.options.length > 1) {
+            monthSelect.options[1].selected = true;
+        }
+    }
+
+    function applyGlobalDashboardFilters() {
+        const selPartner = document.getElementById('partnerFilter') ? document.getElementById('partnerFilter').value : 'ALL';
+        const selMonth = document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : 'ALL';
+
+        const timeMonthSelect = document.getElementById('timeMonthSelect');
+        if (timeMonthSelect) {
+            if (selMonth !== 'ALL') {
+                timeMonthSelect.value = selMonth;
+            } else if (timeMonthSelect.options.length > 0) {
+                timeMonthSelect.value = timeMonthSelect.options[0].value;
+            }
+        }
+
+        if (globalAnalyticsData && globalAnalyticsData.raw_scoped_records) {
+            updateDashboardUI(globalAnalyticsData.raw_scoped_records, selPartner, selMonth);
+        }
+        renderTimeSpendingSection();
+    }
+
+    function updateDashboardUI(records, selectedPartner, selectedMonth) {
         if (!globalAnalyticsData) return;
 
         const selLower = String(selectedPartner || 'ALL').trim().toLowerCase();
+        const selMonthVal = String(selectedMonth || (document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : 'ALL')).trim();
+
+        // 1. Filter by Selected Month-Year
+        const monthFiltered = (selMonthVal === 'ALL')
+            ? records
+            : records.filter(r => {
+                const recMonth = (r.date && r.date.length >= 7) ? r.date.substring(0, 7) : ((r.submitted_at && r.submitted_at.length >= 7) ? r.submitted_at.substring(0, 7) : '');
+                return recMonth === selMonthVal;
+            });
+
+        // Update Partner-Wise Coverage Breakdown Cards for the selected month
+        renderPartnerBreakdownCards(monthFiltered);
+
+        // 2. Filter by Selected Partner
+        const filtered = (selLower === 'all') 
+            ? monthFiltered 
+            : monthFiltered.filter(r => {
+                const p = String(r.partner || '').trim().toLowerCase();
+                return p === selLower || p.includes(selLower);
+            });
 
         let universeShops = 0;
         const uniMap = globalAnalyticsData.universe_shops_by_partner || {};
@@ -535,13 +1078,6 @@
             const matchedKey = Object.keys(uniMap).find(k => k.trim().toLowerCase() === selLower);
             universeShops = matchedKey ? uniMap[matchedKey] : (uniMap[selectedPartner] || 0);
         }
-
-        const filtered = (selLower === 'all') 
-            ? records 
-            : records.filter(r => {
-                const p = String(r.partner || '').trim().toLowerCase();
-                return p === selLower || p.includes(selLower);
-            });
 
         const totalVisits = filtered.length;
         let totalSales = 0;
@@ -590,9 +1126,14 @@
                 });
             }
 
-            const areaKey = `${r.area || 'Unspecified'} → ${r.sub_area || 'Unspecified'}`;
+            const rawArea = r.area || 'Unspecified';
+            const rawSubArea = r.sub_area || 'Unspecified';
+            const cleanArea = rawArea.split('[')[0].trim();
+            const cleanSubArea = rawSubArea.split('[')[0].trim();
+
+            const areaKey = `${cleanArea} → ${cleanSubArea}`;
             if (!areaSummary[areaKey]) {
-                areaSummary[areaKey] = { area: r.area || 'Unspecified', sub_area: r.sub_area || 'Unspecified', visits: 0, sales: 0 };
+                areaSummary[areaKey] = { area: cleanArea, sub_area: cleanSubArea, visits: 0, sales: 0 };
             }
             areaSummary[areaKey].visits++;
             areaSummary[areaKey].sales += Number(r.sales || 0);
@@ -611,6 +1152,9 @@
         document.getElementById('kpiQrRate').textContent = `${qrRate}%`;
         document.getElementById('kpiQrTurnover').textContent = 'PKR ' + qrTurnoverSum.toLocaleString() + ' turnover';
         document.getElementById('kpiBookers').textContent = uniqueBookers.size.toLocaleString();
+
+        // Render Interactive Market Location Map
+        renderMarketMap(filtered);
 
         // Render Daily Trend Charts
         renderDailyTrendChart(filtered, selectedPartner);
@@ -661,11 +1205,324 @@
         document.getElementById('areaTableContainer').innerHTML = html;
     }
 
-    function applyPartnerFilter() {
-        const sel = document.getElementById('partnerFilter').value;
-        if (globalAnalyticsData && globalAnalyticsData.raw_scoped_records) {
-            updateDashboardUI(globalAnalyticsData.raw_scoped_records, sel);
+    function formatTimeMinutes(minutes) {
+        if (!minutes || isNaN(minutes) || minutes <= 0) return "0h 0m";
+        const h = Math.floor(minutes / 60);
+        const m = Math.round(minutes % 60);
+        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    function initTimeSpendingFilters() {
+        if (!globalAnalyticsData || !globalAnalyticsData.user_time_spending) return;
+        const items = globalAnalyticsData.user_time_spending;
+
+        const userSelect = document.getElementById('timeUserSelect');
+        if (userSelect) {
+            userSelect.innerHTML = '<option value="ALL">All Active Users</option>';
+            const usersSet = new Set(items.map(r => r.user).filter(Boolean));
+            usersSet.forEach(u => {
+                const opt = document.createElement('option');
+                opt.value = u;
+                opt.textContent = u;
+                userSelect.appendChild(opt);
+            });
         }
+    }
+
+    function renderTimeSpendingSection() {
+        if (!globalAnalyticsData) return;
+
+        const allTimeItems = globalAnalyticsData.user_time_spending || [];
+        const selPartner = (document.getElementById('partnerFilter') ? document.getElementById('partnerFilter').value : 'ALL').trim().toLowerCase();
+        const selMonth = (document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : 'ALL').trim();
+        const selUser = (document.getElementById('timeUserSelect') ? document.getElementById('timeUserSelect').value : 'ALL').trim().toLowerCase();
+
+        const badgeEl = document.getElementById('timeMonthBadge');
+        if (badgeEl) {
+            if (selMonth === 'ALL') {
+                badgeEl.textContent = 'All Months';
+            } else if (selMonth) {
+                const [y, mm] = selMonth.split('-');
+                const dObj = new Date(parseInt(y), parseInt(mm) - 1, 1);
+                const mLabel = dObj.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+                const currCalendarMonth = new Date().toISOString().substring(0, 7);
+                badgeEl.textContent = (selMonth === currCalendarMonth) ? `Current Month (${mLabel})` : mLabel;
+            }
+        }
+
+        const filtered = allTimeItems.filter(r => {
+            const matchMonth = (selMonth === 'ALL') || (r.month === selMonth);
+            const matchUser = (selUser === 'all') || ((r.user || '').trim().toLowerCase() === selUser);
+            const matchPartner = (selPartner === 'all') || ((r.partner || '').trim().toLowerCase() === selPartner || (r.partner || '').trim().toLowerCase().includes(selPartner));
+            return matchMonth && matchUser && matchPartner;
+        });
+
+        let totalSpanMin = 0;
+        let totalActiveMin = 0;
+        const activeUsersSet = new Set();
+        const datesSet = new Set();
+
+        filtered.forEach(r => {
+            totalSpanMin += Number(r.span_minutes || 0);
+            totalActiveMin += Number(r.active_minutes || 0);
+            if (r.user) activeUsersSet.add(r.user);
+            if (r.date) datesSet.add(r.date);
+        });
+
+        const totalFieldDays = filtered.length;
+        const avgDailySpan = totalFieldDays > 0 ? (totalSpanMin / totalFieldDays) : 0;
+        const avgActiveTime = totalFieldDays > 0 ? (totalActiveMin / totalFieldDays) : 0;
+
+        document.getElementById('kpiAvgDailySpan').textContent = formatTimeMinutes(avgDailySpan);
+        document.getElementById('kpiAvgActiveTime').textContent = formatTimeMinutes(avgActiveTime);
+        document.getElementById('kpiTotalFieldDays').textContent = `${totalFieldDays} Days`;
+        document.getElementById('kpiActiveUsersCount').textContent = `${activeUsersSet.size} Users`;
+
+        renderTimeSpendingDailyChart(filtered, selMonth);
+        renderTimeSpendingUserTotalChart(filtered);
+        renderTimeSpendingTable(filtered);
+    }
+
+    function renderTimeSpendingDailyChart(items, selMonth) {
+        if (chartInstances['chartTimeSpendingDaily']) {
+            chartInstances['chartTimeSpendingDaily'].destroy();
+        }
+
+        const ctxEl = document.getElementById('chartTimeSpendingDaily');
+        if (!ctxEl) return;
+        const ctx = ctxEl.getContext('2d');
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const textColor = isDark ? '#e2e8f0' : '#2d3748';
+        const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+
+        const datesSet = new Set(items.map(r => r.date).filter(Boolean));
+        const sortedDates = Array.from(datesSet).sort();
+
+        if (sortedDates.length === 0) {
+            sortedDates.push((selMonth && selMonth !== 'ALL') ? `${selMonth}-01` : new Date().toISOString().substring(0, 10));
+        }
+
+        const usersList = Array.from(new Set(items.map(r => r.user).filter(Boolean)));
+        const topUsers = usersList.slice(0, 6);
+
+        const datasets = [];
+        topUsers.forEach((uName, idx) => {
+            const color = PALETTE[idx % PALETTE.length];
+            const hoursMap = {};
+            sortedDates.forEach(d => hoursMap[d] = 0);
+
+            items.filter(r => (r.user || '').trim().toLowerCase() === uName.trim().toLowerCase()).forEach(r => {
+                if (r.date && hoursMap[r.date] !== undefined) {
+                    hoursMap[r.date] += Number(r.active_hours || (r.span_hours || 0));
+                }
+            });
+
+            datasets.push({
+                label: uName,
+                data: sortedDates.map(d => hoursMap[d]),
+                borderColor: color,
+                backgroundColor: color,
+                borderWidth: 2.5,
+                tension: 0.3,
+                fill: false,
+                pointRadius: 3,
+            });
+        });
+
+        chartInstances['chartTimeSpendingDaily'] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: sortedDates.map(d => d.substring(5)),
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: { color: textColor, font: { family: 'Inter, sans-serif', size: 11 } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const hrs = context.parsed.y || 0;
+                                return `${context.dataset.label}: ${hrs.toFixed(1)} hrs active`;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        display: getDatalabelDisplayFn('chartTimeSpendingDaily'),
+                        color: textColor,
+                        anchor: 'end',
+                        align: 'top',
+                        offset: 2,
+                        font: { family: 'Inter, sans-serif', weight: 'bold', size: 10 },
+                        formatter: function(value) {
+                            return value ? `${value.toFixed(1)}h` : '';
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { color: textColor }, grid: { color: gridColor } },
+                    y: { 
+                        ticks: { color: textColor }, 
+                        grid: { color: gridColor }, 
+                        beginAtZero: true,
+                        title: { display: true, text: 'Active Hours', color: textColor, font: { size: 10 } }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderTimeSpendingUserTotalChart(items) {
+        if (chartInstances['chartTimeSpendingUserTotal']) {
+            chartInstances['chartTimeSpendingUserTotal'].destroy();
+        }
+
+        const ctxEl = document.getElementById('chartTimeSpendingUserTotal');
+        if (!ctxEl) return;
+        const ctx = ctxEl.getContext('2d');
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const textColor = isDark ? '#e2e8f0' : '#2d3748';
+        const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+
+        const userTotals = {};
+        items.forEach(r => {
+            const u = r.user || 'Unknown';
+            userTotals[u] = (userTotals[u] || 0) + Number(r.active_hours || r.span_hours || 0);
+        });
+
+        const sortedUsers = Object.keys(userTotals).sort((a, b) => userTotals[b] - userTotals[a]);
+        const labels = sortedUsers.slice(0, 10);
+        const dataVals = labels.map(u => Math.round(userTotals[u] * 10) / 10);
+
+        chartInstances['chartTimeSpendingUserTotal'] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Total Active Hours',
+                    data: dataVals,
+                    backgroundColor: 'rgba(100, 181, 246, 0.75)',
+                    borderRadius: 6,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return ` Total Field Hours: ${context.parsed.x} hrs`;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        display: getDatalabelDisplayFn('chartTimeSpendingUserTotal'),
+                        color: textColor,
+                        anchor: 'end',
+                        align: 'right',
+                        offset: 4,
+                        font: { family: 'Inter, sans-serif', weight: 'bold', size: 10 },
+                        formatter: function(value) {
+                            return `${value}h`;
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { color: textColor }, grid: { color: gridColor }, beginAtZero: true },
+                    y: { ticks: { color: textColor }, grid: { color: gridColor } }
+                }
+            }
+        });
+    }
+
+    function renderTimeSpendingTable(items) {
+        const container = document.getElementById('timeSpendingTableContainer');
+        if (!container) return;
+
+        if (items.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem; padding: 0.5rem 0;">No time spending records found for the selected month and user filter.</p>';
+            return;
+        }
+
+        let html = `
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: left; white-space: nowrap;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); color: #64b5f6;">
+                        <th style="padding: 0.6rem;">Date</th>
+                        <th style="padding: 0.6rem;">User / Booker</th>
+                        <th style="padding: 0.6rem;">Partner</th>
+                        <th style="padding: 0.6rem;">Area</th>
+                        <th style="padding: 0.6rem; text-align: center;">First Visit (Start)</th>
+                        <th style="padding: 0.6rem; text-align: center;">Last Visit (End)</th>
+                        <th style="padding: 0.6rem; text-align: center;">Field Work Span</th>
+                        <th style="padding: 0.6rem; text-align: center;">Active Field Time</th>
+                        <th style="padding: 0.6rem; text-align: center;">Visits Submitted</th>
+                        <th style="padding: 0.6rem; text-align: right;">Avg Pace</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        items.forEach(r => {
+            let areasList = r.areas || [];
+            if (typeof areasList === 'string') {
+                areasList = areasList.split(',').map(a => a.trim()).filter(Boolean);
+            }
+            let areaChipsHtml = '—';
+            if (areasList.length > 0) {
+                areaChipsHtml = areasList.map(a => {
+                    const cleanArea = String(a).split('[')[0].trim();
+                    return `<span style="background: rgba(167, 139, 250, 0.15); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.3); padding: 0.18rem 0.55rem; border-radius: 12px; font-size: 0.75rem; font-weight: 700; display: inline-block; margin: 0.1rem 0.2rem 0.1rem 0;">📍 ${cleanArea}</span>`;
+                }).join(' ');
+            }
+
+            html += `
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 0.6rem; font-weight: 700; color: var(--text-primary);">${r.date}</td>
+                    <td style="padding: 0.6rem;">
+                        <strong style="color: var(--text-primary);">${r.user}</strong>
+                        ${r.booker && r.booker !== r.user ? `<span style="font-size: 0.72rem; color: var(--text-secondary); display: block;">(${r.booker})</span>` : ''}
+                    </td>
+                    <td style="padding: 0.6rem; color: var(--text-secondary);">${r.partner || '—'}</td>
+                    <td style="padding: 0.6rem;">${areaChipsHtml}</td>
+                    <td style="padding: 0.6rem; text-align: center;">
+                        <span style="background: rgba(143, 213, 165, 0.12); color: #8fd5a5; padding: 0.18rem 0.5rem; border-radius: 10px; font-size: 0.78rem; font-weight: 600;">
+                            ${r.first_visit_time || '—'}
+                        </span>
+                    </td>
+                    <td style="padding: 0.6rem; text-align: center;">
+                        <span style="background: rgba(242, 153, 74, 0.12); color: #f2994a; padding: 0.18rem 0.5rem; border-radius: 10px; font-size: 0.78rem; font-weight: 600;">
+                            ${r.last_visit_time || '—'}
+                        </span>
+                    </td>
+                    <td style="padding: 0.6rem; text-align: center; font-weight: 700; color: #64b5f6;">
+                        ${r.span_formatted || '0m'}
+                    </td>
+                    <td style="padding: 0.6rem; text-align: center;">
+                        <span style="background: rgba(46, 204, 113, 0.15); color: #2ecc71; padding: 0.2rem 0.55rem; border-radius: 12px; font-weight: 700; font-size: 0.78rem;">
+                            ⚡ ${r.active_formatted || '0m'}
+                        </span>
+                    </td>
+                    <td style="padding: 0.6rem; text-align: center; font-weight: 700; color: var(--text-primary);">
+                        ${r.visit_count} visits
+                    </td>
+                    <td style="padding: 0.6rem; text-align: right; color: var(--text-secondary); font-size: 0.78rem;">
+                        ${r.avg_interval_minutes > 0 ? `${r.avg_interval_minutes} min/visit` : 'Single Visit'}
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
     }
 
     async function loadAnalyticsData() {
@@ -700,8 +1557,10 @@
             // Render Partner-Wise Breakdown Cards
             renderPartnerBreakdownCards(data.raw_scoped_records || []);
 
-            // Initial render
-            updateDashboardUI(data.raw_scoped_records || [], 'ALL');
+            // Initial render with current month default filter
+            initGlobalMonthFilter();
+            initTimeSpendingFilters();
+            applyGlobalDashboardFilters();
 
         } catch (err) {
             document.getElementById('areaTableContainer').innerHTML = `<p style="color: red;">Failed to load analytics dashboard data.</p>`;
