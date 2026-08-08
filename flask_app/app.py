@@ -255,6 +255,19 @@ def _get_all_users(force_refresh: bool = False) -> dict[str, dict[str, Any]]:
     except Exception as exc:
         print("Warning: Could not read Users from Google Sheet:", exc)
 
+    # Load local fallback users_data.json if present
+    local_json = Path("users_data.json")
+    if local_json.is_file():
+        try:
+            import json
+            with open(local_json, "r", encoding="utf-8") as f:
+                file_users = json.load(f)
+                for u_k, u_v in file_users.items():
+                    if u_k not in users_dict:
+                        users_dict[u_k] = u_v
+        except Exception as e:
+            print("Warning: Could not read local users_data.json:", e)
+
     # Initial seed from SECRETS if worksheet was empty
     if not users_dict:
         secrets_users = _secret("users", {})
@@ -262,6 +275,18 @@ def _get_all_users(force_refresh: bool = False) -> dict[str, dict[str, Any]]:
         if initial_users:
             users_dict = initial_users
             _save_all_users(initial_users)
+
+    # Always ensure 'test' viewer user exists and has viewer role
+    test_key = next((k for k in users_dict if k.casefold() == "test"), None)
+    if test_key:
+        users_dict[test_key]["role"] = "viewer"
+    else:
+        users_dict["test"] = {
+            "display_name": "Test User (Viewer)",
+            "password_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+            "role": "viewer",
+            "partner_codes": ["D0573", "D70002202", "D70002246", "Tapal"],
+        }
 
     _USERS_CACHE = (now_ts, users_dict)
     return users_dict
@@ -320,7 +345,7 @@ def _authenticate(username: str, password: str) -> dict[str, Any] | None:
         return None
 
     role = str(settings.get("role", "")).strip().lower()
-    if role not in {"admin", "partner"}:
+    if role not in {"admin", "partner", "viewer"}:
         return None
 
     configured_partner_codes = settings.get(
@@ -333,7 +358,9 @@ def _authenticate(username: str, password: str) -> dict[str, Any] | None:
             str(code).strip() for code in configured_partner_codes if str(code).strip()
         ]
     partner_codes = list(dict.fromkeys(partner_codes))
-    if role == "partner" and not partner_codes:
+    if role == "viewer" and not partner_codes:
+        partner_codes = list(PARTNER_NAME_BY_CODE.keys())
+    elif role == "partner" and not partner_codes:
         return None
 
     return {
@@ -752,6 +779,502 @@ def photo_proxy(file_ref: str):
     return jsonify({"error": "Photo not found"}), 404
 
 
+def _get_dummy_analytics() -> dict[str, Any]:
+    """Generate realistic dummy data for viewer/test user demo mode."""
+    dummy_records = [
+        {
+            "partner": "CBL",
+            "shop": "Al-Fateh Supermarket",
+            "code": "D0573-101",
+            "area": "Gulberg",
+            "sub_area": "Main Market",
+            "sales": 150000.0,
+            "top_brands": "Prince, Tuc, Zeera Plus",
+            "competitors": "LU, Bisconi",
+            "payment_gateways": "Cash, Easypaisa, JazzCash",
+            "qr_payment": "Yes",
+            "qr_turnover": 45000.0,
+            "booker": "Muhammad Ali",
+            "username": "test",
+            "submitted_at": "2026-02-08 11:30:00 PKT",
+            "date": "2026-02-08",
+            "lat": 31.5204,
+            "lng": 74.3587,
+        },
+        {
+            "partner": "Olpers KHI",
+            "shop": "Agha's Supermarket",
+            "code": "D70002202-005",
+            "area": "Clifton",
+            "sub_area": "Block 5",
+            "sales": 220000.0,
+            "top_brands": "Olper's Milk, Tarang, ProCal",
+            "competitors": "Milkpak, Dairy Omung",
+            "payment_gateways": "Cash, Bank Transfer, QR",
+            "qr_payment": "Yes",
+            "qr_turnover": 75000.0,
+            "booker": "Usman Tariq",
+            "username": "test",
+            "submitted_at": "2026-02-08 14:15:00 PKT",
+            "date": "2026-02-08",
+            "lat": 24.8138,
+            "lng": 67.0302,
+        },
+        {
+            "partner": "Tapal",
+            "shop": "Imtiaz Super Market",
+            "code": "Tapal-202",
+            "area": "DHA",
+            "sub_area": "Phase 5",
+            "sales": 180000.0,
+            "top_brands": "Danedar, Tezdum, Green Tea",
+            "competitors": "Lipton, Vital",
+            "payment_gateways": "Cash, Cards, QR",
+            "qr_payment": "Yes",
+            "qr_turnover": 60000.0,
+            "booker": "Hamza Khan",
+            "username": "test",
+            "submitted_at": "2026-02-07 10:45:00 PKT",
+            "date": "2026-02-07",
+            "lat": 31.4704,
+            "lng": 74.3787,
+        },
+        {
+            "partner": "Olpers LHR",
+            "shop": "Rahim Store",
+            "code": "D70002246-044",
+            "area": "Model Town",
+            "sub_area": "Block C",
+            "sales": 95000.0,
+            "top_brands": "Olper's Milk, TBA, Tarka",
+            "competitors": "Milkpak, Haleeb",
+            "payment_gateways": "Cash, Easypaisa",
+            "qr_payment": "No",
+            "qr_turnover": 0.0,
+            "booker": "Zubair Ahmed",
+            "username": "test",
+            "submitted_at": "2026-02-07 16:20:00 PKT",
+            "date": "2026-02-07",
+            "lat": 31.4854,
+            "lng": 74.3214,
+        },
+        {
+            "partner": "CBL",
+            "shop": "Naheed Superstore",
+            "code": "D0573-088",
+            "area": "Bahadurabad",
+            "sub_area": "Main Commercial",
+            "sales": 260000.0,
+            "top_brands": "Candi, Oreo, Tiger, Bakeri",
+            "competitors": "Bisconi, Cookinia",
+            "payment_gateways": "Cash, Card, QR",
+            "qr_payment": "Yes",
+            "qr_turnover": 90000.0,
+            "booker": "Muhammad Ali",
+            "username": "test",
+            "submitted_at": "2026-02-06 12:10:00 PKT",
+            "date": "2026-02-06",
+            "lat": 24.8785,
+            "lng": 67.0694,
+        },
+        {
+            "partner": "Olpers KHI",
+            "shop": "Bismillah General Store",
+            "code": "D70002202-019",
+            "area": "FB Area",
+            "sub_area": "Block 14",
+            "sales": 65000.0,
+            "top_brands": "Flavoured Milk, Powder Milk",
+            "competitors": "Good Milk, Dostea",
+            "payment_gateways": "Cash, JazzCash",
+            "qr_payment": "Yes",
+            "qr_turnover": 25000.0,
+            "booker": "Usman Tariq",
+            "username": "test",
+            "submitted_at": "2026-02-06 15:40:00 PKT",
+            "date": "2026-02-06",
+            "lat": 24.9285,
+            "lng": 67.0794,
+        },
+        {
+            "partner": "Tapal",
+            "shop": "Kashif Mart",
+            "code": "Tapal-109",
+            "area": "Johar Town",
+            "sub_area": "G3 Block",
+            "sales": 110000.0,
+            "top_brands": "Family Mixture, Mezban",
+            "competitors": "Meezan, Vital",
+            "payment_gateways": "Cash, Easypaisa",
+            "qr_payment": "No",
+            "qr_turnover": 0.0,
+            "booker": "Hamza Khan",
+            "username": "test",
+            "submitted_at": "2026-02-05 09:30:00 PKT",
+            "date": "2026-02-05",
+            "lat": 31.4685,
+            "lng": 74.2794,
+        },
+        {
+            "partner": "Olpers LHR",
+            "shop": "Metro Cash & Carry",
+            "code": "D70002246-001",
+            "area": "Thokar Niaz Baig",
+            "sub_area": "Raiwind Road",
+            "sales": 320000.0,
+            "top_brands": "Olper's Milk, Tarang, ProCal, TBA",
+            "competitors": "Milkpak, Dairy Omung, Good Milk",
+            "payment_gateways": "Cash, Bank Transfer, QR",
+            "qr_payment": "Yes",
+            "qr_turnover": 120000.0,
+            "booker": "Zubair Ahmed",
+            "username": "test",
+            "submitted_at": "2026-02-05 13:50:00 PKT",
+            "date": "2026-02-05",
+            "lat": 31.4725,
+            "lng": 74.2414,
+        }
+    ]
+
+    total_visits = len(dummy_records)
+    total_sales = sum(r["sales"] for r in dummy_records)
+    qr_count = sum(1 for r in dummy_records if r["qr_payment"] == "Yes")
+    qr_turnover_sum = sum(r["qr_turnover"] for r in dummy_records)
+
+    return {
+        "total_visits": total_visits,
+        "total_sales": total_sales,
+        "avg_sales": total_sales / total_visits if total_visits > 0 else 0,
+        "unique_shops_count": 8,
+        "unique_bookers_count": 4,
+        "qr_count": qr_count,
+        "qr_adoption_rate": round((qr_count / total_visits * 100), 1) if total_visits > 0 else 0,
+        "qr_turnover_sum": qr_turnover_sum,
+        "total_universe_shops": 12,
+        "universe_shops_by_partner": {
+            "CBL": 3,
+            "Olpers KHI": 3,
+            "Olpers LHR": 3,
+            "Tapal": 3,
+        },
+        "partner_counts": {
+            "CBL": 2,
+            "Olpers KHI": 2,
+            "Olpers LHR": 2,
+            "Tapal": 2,
+        },
+        "top_brands_counts": {
+            "Olper's Milk": 4,
+            "Tarang": 3,
+            "Prince": 2,
+            "Tuc": 2,
+            "Candi": 2,
+            "Tezdum": 2,
+            "Danedar": 2,
+            "ProCal": 2,
+        },
+        "competitor_counts": {
+            "Milkpak": 4,
+            "LU": 2,
+            "Dairy Omung": 2,
+            "Bisconi": 2,
+            "Lipton": 2,
+            "Vital": 2,
+        },
+        "payment_counts": {
+            "Cash": 8,
+            "Easypaisa": 4,
+            "JazzCash": 3,
+            "QR": 6,
+            "Bank Transfer": 2,
+        },
+        "area_summary": [
+            {"area": "Gulberg", "sub_area": "Main Market", "visits": 1, "sales": 150000.0},
+            {"area": "Clifton", "sub_area": "Block 5", "visits": 1, "sales": 220000.0},
+            {"area": "DHA", "sub_area": "Phase 5", "visits": 1, "sales": 180000.0},
+            {"area": "Model Town", "sub_area": "Block C", "visits": 1, "sales": 95000.0},
+            {"area": "Bahadurabad", "sub_area": "Main Commercial", "visits": 1, "sales": 260000.0},
+            {"area": "FB Area", "sub_area": "Block 14", "visits": 1, "sales": 65000.0},
+            {"area": "Johar Town", "sub_area": "G3 Block", "visits": 1, "sales": 110000.0},
+            {"area": "Thokar Niaz Baig", "sub_area": "Raiwind Road", "visits": 1, "sales": 320000.0},
+        ],
+        "raw_scoped_records": dummy_records,
+        "user_time_spending": [
+            {
+                "date": "2026-02-08",
+                "month": "2026-02",
+                "user": "Muhammad Ali",
+                "username": "test",
+                "booker": "Muhammad Ali",
+                "partner": "CBL",
+                "areas": ["Gulberg"],
+                "first_visit_time": "11:30 AM",
+                "last_visit_time": "02:15 PM",
+                "span_minutes": 165,
+                "span_hours": 2.75,
+                "span_formatted": "2h 45m",
+                "active_minutes": 75,
+                "active_hours": 1.25,
+                "active_formatted": "1h 15m",
+                "visit_count": 2,
+                "avg_interval_minutes": 82.5,
+            },
+            {
+                "date": "2026-02-07",
+                "month": "2026-02",
+                "user": "Hamza Khan",
+                "username": "test",
+                "booker": "Hamza Khan",
+                "partner": "Tapal",
+                "areas": ["DHA"],
+                "first_visit_time": "10:45 AM",
+                "last_visit_time": "04:20 PM",
+                "span_minutes": 335,
+                "span_hours": 5.58,
+                "span_formatted": "5h 35m",
+                "active_minutes": 120,
+                "active_hours": 2.0,
+                "active_formatted": "2h 0m",
+                "visit_count": 2,
+                "avg_interval_minutes": 167.5,
+            }
+        ],
+    }
+
+
+def _get_dummy_submissions() -> list[dict[str, Any]]:
+    """Return dummy market visit submissions for test/viewer user."""
+    return [
+        {
+            "_Submission ID": "MV-20260208-TEST0001",
+            "Submitted At": "2026-02-08 11:30:00 PKT",
+            "Partner": "CBL",
+            "Store Code": "D0573-101",
+            "Shop Name": "Al-Fateh Supermarket",
+            "Area": "Gulberg",
+            "Sub Area": "Main Market",
+            "Booker Name": "Muhammad Ali",
+            "Monthly Sales": 150000,
+            "Photo URL": "/static/favicon.ico",
+            "Photo": "Available",
+            "Competitor Brands": "LU, Bisconi",
+            "Top Brands": "Prince, Tuc, Zeera Plus",
+            "Payment Gateways": "Cash, Easypaisa, JazzCash",
+            "QR Payment": "Yes",
+            "QR Monthly Turnover": 45000,
+            "User Latitude": "31.5204",
+            "User Longitude": "74.3587",
+            "Location Accuracy (m)": "12",
+            "Remarks": "Demo submission for viewer mode. Excellent stock placement.",
+        },
+        {
+            "_Submission ID": "MV-20260208-TEST0002",
+            "Submitted At": "2026-02-08 14:15:00 PKT",
+            "Partner": "Olpers KHI",
+            "Store Code": "D70002202-005",
+            "Shop Name": "Agha's Supermarket",
+            "Area": "Clifton",
+            "Sub Area": "Block 5",
+            "Booker Name": "Usman Tariq",
+            "Monthly Sales": 220000,
+            "Photo URL": "/static/favicon.ico",
+            "Photo": "Available",
+            "Competitor Brands": "Milkpak, Dairy Omung",
+            "Top Brands": "Olper's Milk, Tarang, ProCal",
+            "Payment Gateways": "Cash, Bank Transfer",
+            "QR Payment": "Yes",
+            "QR Monthly Turnover": 75000,
+            "User Latitude": "24.8138",
+            "User Longitude": "67.0302",
+            "Location Accuracy (m)": "8",
+            "Remarks": "High daily turnover. All key SKUs displayed on front shelf.",
+        },
+    ]
+
+
+def _get_trimmed_dummy_universe(partner_locations: dict[str, Any]) -> dict[str, Any]:
+    """Trim universe for test/viewer user so each partner only shows 1 area with 2-3 shops."""
+    default_dummy = {
+        "D0573": {
+            "Gulberg": {
+                "Main Market": [
+                    {
+                        "selection_id": "D0573-101::Al-Fateh Supermarket",
+                        "store_code": "D0573-101",
+                        "store_name": "Al-Fateh Supermarket",
+                        "channel_classification": "Supermarket",
+                        "owner_name": "Kashif Ali",
+                        "owner_contact": "03001234567",
+                        "address": "Main Market, Gulberg, Lahore",
+                        "latitude": "31.5204",
+                        "longitude": "74.3587"
+                    },
+                    {
+                        "selection_id": "D0573-102::Naheed Mart",
+                        "store_code": "D0573-102",
+                        "store_name": "Naheed Mart",
+                        "channel_classification": "Departmental Store",
+                        "owner_name": "Tariq Mahmood",
+                        "owner_contact": "03219876543",
+                        "address": "Block 2, Gulberg, Lahore",
+                        "latitude": "31.5215",
+                        "longitude": "74.3590"
+                    },
+                    {
+                        "selection_id": "D0573-103::Crown Cash & Carry",
+                        "store_code": "D0573-103",
+                        "store_name": "Crown Cash & Carry",
+                        "channel_classification": "Cash & Carry",
+                        "owner_name": "Usman Malik",
+                        "owner_contact": "03334567890",
+                        "address": "Main Boulevard, Gulberg, Lahore",
+                        "latitude": "31.5230",
+                        "longitude": "74.3610"
+                    }
+                ]
+            }
+        },
+        "D70002202": {
+            "Clifton": {
+                "Block 5": [
+                    {
+                        "selection_id": "D70002202-001::Agha's Supermarket",
+                        "store_code": "D70002202-001",
+                        "store_name": "Agha's Supermarket",
+                        "channel_classification": "Supermarket",
+                        "owner_name": "Agha Salman",
+                        "owner_contact": "03012345678",
+                        "address": "Block 5, Clifton, Karachi",
+                        "latitude": "24.8138",
+                        "longitude": "67.0302"
+                    },
+                    {
+                        "selection_id": "D70002202-002::Bismillah General Store",
+                        "store_code": "D70002202-002",
+                        "store_name": "Bismillah General Store",
+                        "channel_classification": "Retail Shop",
+                        "owner_name": "Muhammad Bilal",
+                        "owner_contact": "03123456789",
+                        "address": "Boat Basin, Clifton, Karachi",
+                        "latitude": "24.8190",
+                        "longitude": "67.0280"
+                    },
+                    {
+                        "selection_id": "D70002202-003::Ocean Mart",
+                        "store_code": "D70002202-003",
+                        "store_name": "Ocean Mart",
+                        "channel_classification": "Mart",
+                        "owner_name": "Hamza Raza",
+                        "owner_contact": "03456789012",
+                        "address": "Khayaban-e-Iqbal, Clifton, Karachi",
+                        "latitude": "24.8150",
+                        "longitude": "67.0320"
+                    }
+                ]
+            }
+        },
+        "D70002246": {
+            "Model Town": {
+                "Block C": [
+                    {
+                        "selection_id": "D70002246-001::Rahim Store",
+                        "store_code": "D70002246-001",
+                        "store_name": "Rahim Store",
+                        "channel_classification": "General Store",
+                        "owner_name": "Abdul Rahim",
+                        "owner_contact": "03023456789",
+                        "address": "Block C, Model Town, Lahore",
+                        "latitude": "31.4854",
+                        "longitude": "74.3214"
+                    },
+                    {
+                        "selection_id": "D70002246-002::Metro Cash & Carry",
+                        "store_code": "D70002246-002",
+                        "store_name": "Metro Cash & Carry",
+                        "channel_classification": "Hypermarket",
+                        "owner_name": "Imran Khan",
+                        "owner_contact": "03224567890",
+                        "address": "Model Town Link Road, Lahore",
+                        "latitude": "31.4780",
+                        "longitude": "74.3250"
+                    },
+                    {
+                        "selection_id": "D70002246-003::Standard Retailers",
+                        "store_code": "D70002246-003",
+                        "store_name": "Standard Retailers",
+                        "channel_classification": "Retail Shop",
+                        "owner_name": "Zia Ur Rehman",
+                        "owner_contact": "03345678901",
+                        "address": "Central Commercial, Model Town, Lahore",
+                        "latitude": "31.4830",
+                        "longitude": "74.3200"
+                    }
+                ]
+            }
+        },
+        "Tapal": {
+            "DHA": {
+                "Phase 5": [
+                    {
+                        "selection_id": "Tapal-001::Imtiaz Super Market",
+                        "store_code": "Tapal-001",
+                        "store_name": "Imtiaz Super Market",
+                        "channel_classification": "Supermarket",
+                        "owner_name": "Imtiaz Abbasi",
+                        "owner_contact": "03034567890",
+                        "address": "CCA Phase 5, DHA, Lahore",
+                        "latitude": "31.4704",
+                        "longitude": "74.3787"
+                    },
+                    {
+                        "selection_id": "Tapal-002::Kashif Mart",
+                        "store_code": "Tapal-002",
+                        "store_name": "Kashif Mart",
+                        "channel_classification": "Mart",
+                        "owner_name": "Kashif Shah",
+                        "owner_contact": "03135678901",
+                        "address": "Main Commercial, DHA Phase 5, Lahore",
+                        "latitude": "31.4720",
+                        "longitude": "74.3800"
+                    },
+                    {
+                        "selection_id": "Tapal-003::Green Tea House",
+                        "store_code": "Tapal-003",
+                        "store_name": "Green Tea House",
+                        "channel_classification": "Specialty Shop",
+                        "owner_name": "Zubair Ahmad",
+                        "owner_contact": "03236789012",
+                        "address": "Phase 5 Market, DHA, Lahore",
+                        "latitude": "31.4750",
+                        "longitude": "74.3820"
+                    }
+                ]
+            }
+        }
+    }
+
+    if not partner_locations:
+        return default_dummy
+
+    trimmed = {}
+    for code, areas in partner_locations.items():
+        if not areas:
+            continue
+        first_area_name = next(iter(areas))
+        sub_areas = areas[first_area_name]
+        if not sub_areas:
+            continue
+        first_sub_name = next(iter(sub_areas))
+        shops = sub_areas[first_sub_name][:3]
+        trimmed[code] = {
+            first_area_name: {
+                first_sub_name: shops
+            }
+        }
+
+    return trimmed if trimmed else default_dummy
+
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -814,8 +1337,8 @@ def api_add_user():
         return jsonify({"ok": False, "error": "Username is required."}), 400
     if not password:
         return jsonify({"ok": False, "error": "Password is required."}), 400
-    if role not in {"admin", "partner"}:
-        return jsonify({"ok": False, "error": "Role must be 'admin' or 'partner'."}), 400
+    if role not in {"admin", "partner", "viewer"}:
+        return jsonify({"ok": False, "error": "Role must be 'admin', 'partner', or 'viewer'."}), 400
     if role == "partner" and not partner_codes:
         return jsonify({"ok": False, "error": "Select at least one partner code for partner users."}), 400
 
@@ -828,7 +1351,7 @@ def api_add_user():
         "display_name": display_name,
         "password_hash": password_hash,
         "role": role,
-        "partner_codes": partner_codes if role == "partner" else [],
+        "partner_codes": partner_codes if role in {"partner", "viewer"} else [],
     }
     _save_all_users(all_users)
 
@@ -847,8 +1370,8 @@ def api_update_user():
 
     if not username:
         return jsonify({"ok": False, "error": "Username is required."}), 400
-    if role not in {"admin", "partner"}:
-        return jsonify({"ok": False, "error": "Role must be 'admin' or 'partner'."}), 400
+    if role not in {"admin", "partner", "viewer"}:
+        return jsonify({"ok": False, "error": "Role must be 'admin', 'partner', or 'viewer'."}), 400
     if role == "partner" and not partner_codes:
         return jsonify({"ok": False, "error": "Select at least one partner code for partner users."}), 400
 
@@ -860,7 +1383,7 @@ def api_update_user():
     user_entry = all_users[target_key]
     user_entry["display_name"] = display_name
     user_entry["role"] = role
-    user_entry["partner_codes"] = partner_codes if role == "partner" else []
+    user_entry["partner_codes"] = partner_codes if role in {"partner", "viewer"} else []
 
     if password:
         user_entry["password_hash"] = hashlib.sha256(password.encode("utf-8")).hexdigest()
@@ -944,6 +1467,13 @@ def index():
 @login_required
 def api_universe():
     user = session.get("_authenticated_user", {})
+    if user.get("role") == "viewer" or user.get("username") == "test":
+        try:
+            full_locations = _universe_partner_locations()
+        except Exception:
+            full_locations = {}
+        return jsonify(_get_trimmed_dummy_universe(full_locations))
+
     try:
         partner_locations = _universe_partner_locations()
     except Exception as exc:
@@ -966,6 +1496,9 @@ def api_universe():
 @app.route("/api/last-visit")
 @login_required
 def api_last_visit():
+    user = session.get("_authenticated_user", {})
+    if user.get("role") == "viewer" or user.get("username") == "test":
+        return jsonify({"last_visit_date": "08 Feb 2026"})
     partner_name = request.args.get("partner_name", "")
     area = request.args.get("area", "")
     sub_area = request.args.get("sub_area", "")
@@ -995,6 +1528,8 @@ def dashboard():
 @login_required
 def api_analytics():
     user = session.get("_authenticated_user", {})
+    if user.get("role") == "viewer" or user.get("username") == "test":
+        return jsonify(_get_dummy_analytics())
     role = user.get("role", "partner")
     assigned_codes = [str(c).strip().casefold() for c in user.get("partner_codes", [])]
     assigned_names = [PARTNER_NAME_BY_CODE.get(code, code).casefold() for code in user.get("partner_codes", [])] + assigned_codes
@@ -1320,6 +1855,8 @@ def _calculate_user_time_spending(scoped_records: list[dict[str, Any]]) -> list[
 @login_required
 def api_submissions():
     user = session.get("_authenticated_user", {})
+    if user.get("role") == "viewer" or user.get("username") == "test":
+        return jsonify({"submissions": _get_dummy_submissions()})
     try:
         submissions = _user_submissions(user["username"])
         return jsonify({"submissions": submissions})
@@ -1334,6 +1871,11 @@ def api_submissions():
 @login_required
 def api_submit():
     user = session.get("_authenticated_user", {})
+    if user.get("role") == "viewer" or user.get("username") == "test":
+        return jsonify({
+            "ok": False,
+            "error": "🔒 Read-Only Demo Account: The 'test' viewer user cannot save, edit, or delete data."
+        }), 403
     partner_code = request.form.get("partner_code", "").strip()
     if not partner_code and user.get("partner_codes"):
         partner_code = user["partner_codes"][0]

@@ -21,8 +21,7 @@
     <h1>Daily Market Visit</h1>
     <p>Record shop details, market observations, and your visit photo.</p>
     <div class="user-badge">
-        <span>Signed in as <strong>{{ user.display_name }}</strong> ({{ "Administrator" if user.role == "admin" else
-            "Partner" }})</span>
+        <span>Signed in as <strong>{{ user.display_name }}</strong> ({{ "Administrator" if user.role == "admin" else ("Viewer Demo" if (user.role == "viewer" or user.username == "test") else "Partner") }})</span>
         <a href="/logout" class="logout-link">Sign out</a>
     </div>
 
@@ -270,10 +269,17 @@
         <input type="hidden" id="userLng" name="user_longitude" value="">
         <input type="hidden" id="userAcc" name="location_accuracy" value="">
 
+        {% if user and (user.role == 'viewer' or user.username == 'test') %}
+        <button type="submit" class="btn-submit" id="btnSubmitForm" style="opacity: 0.85; background: #607d8b;">
+            <span id="btnSubmitText">🔒 Save Disabled (Viewer Demo Mode)</span>
+            <span id="btnSpinner" class="spinner" style="display: none;"></span>
+        </button>
+        {% else %}
         <button type="submit" class="btn-submit" id="btnSubmitForm">
             <span id="btnSubmitText">Submit Market Visit</span>
             <span id="btnSpinner" class="spinner" style="display: none;"></span>
         </button>
+        {% endif %}
     </div>
 </form>
 
@@ -759,9 +765,21 @@
         }
     }
 
+    const IS_VIEWER = {{ 'true' if user and (user.role == 'viewer' or user.username == 'test') else 'false' }};
+
     // Geolocation capture & Submit Form
     document.getElementById('visitForm').addEventListener('submit', async function (e) {
         e.preventDefault();
+
+        if (IS_VIEWER) {
+            document.getElementById('flashAlert').innerHTML = `
+                <div class="alert alert-danger" style="background: rgba(33, 150, 243, 0.12); border-color: rgba(33, 150, 243, 0.35); color: #0d47a1;">
+                    🔒 <strong>Read-Only Demo Mode:</strong> You are logged in as the 'test' demo user. Saving, editing, and deleting market visits are disabled.
+                </div>
+            `;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+        }
 
         // Use pre-fetched location if available, otherwise fast fallback fetch
         if (navigator.geolocation && !document.getElementById('userLat').value) {

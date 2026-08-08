@@ -41,6 +41,8 @@
                 <td style="padding: 0.75rem 0.6rem;">
                     {% if u.role == 'admin' %}
                     <span style="background: #fff3e0; color: #e65100; font-weight: 700; font-size: 0.78rem; padding: 0.3rem 0.65rem; border-radius: 20px;">🛡️ Administrator</span>
+                    {% elif u.role == 'viewer' %}
+                    <span style="background: #e3f2fd; color: #0277bd; font-weight: 700; font-size: 0.78rem; padding: 0.3rem 0.65rem; border-radius: 20px;">👁️ Viewer (Demo)</span>
                     {% else %}
                     <span style="background: var(--badge-bg); color: var(--badge-text); font-weight: 700; font-size: 0.78rem; padding: 0.3rem 0.65rem; border-radius: 20px;">🤝 Partner</span>
                     {% endif %}
@@ -102,6 +104,7 @@
                 <label class="form-label" for="modalRole">Role *</label>
                 <select id="modalRole" class="form-select" onchange="onModalRoleChange()">
                     <option value="partner">Partner</option>
+                    <option value="viewer">Viewer (Read-Only Demo)</option>
                     <option value="admin">Administrator</option>
                 </select>
             </div>

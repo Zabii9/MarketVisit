@@ -202,6 +202,8 @@
     <div class="scope-badge">
         {% if user.role == 'admin' %}
         🌐 Scope: <strong>All System Data (Administrator)</strong>
+        {% elif user.role == 'viewer' or user.username == 'test' %}
+        👁️ Scope: <strong>Public Demo / Viewer Mode (Dummy Data)</strong>
         {% else %}
         🔒 Scope: <strong>Assigned Partners Only ({{ user.get('partner_codes', []) | join(', ') }})</strong>
         {% endif %}

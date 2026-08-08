@@ -1,14 +1,9 @@
+
 # Daily Market Visit
 
-A mobile-friendly Streamlit form that saves daily market visits to the `Dump`
-worksheet in Google Sheets. Visit photos can be uploaded to a shared Google Drive
-folder and their links are saved with each response.
+A mobile-friendly Flask & Streamlit web platform for recording daily market visits to Google Sheets with real-time analytics, map visualization, and photo uploads.
 
-## Security first
-
-The service-account key shared in chat must be considered compromised. In Google
-Cloud Console, delete/revoke that key, create a replacement, and use only the new
-key in Streamlit secrets. Never put a service-account JSON file in this repository.
+📖 **Looking for step-by-step end user instructions?** Read the [End User Guide](USER_GUIDE.md).
 
 ## Google setup
 
