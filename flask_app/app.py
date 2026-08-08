@@ -686,6 +686,11 @@ app.config["PERMANENT_SESSION_LIFETIME"] = 86400 * 30
 
 
 
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon")
+
+
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename: str):
     upload_dir = Path("/tmp/uploads") if (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")) else UPLOAD_DIR
