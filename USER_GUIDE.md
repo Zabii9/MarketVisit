@@ -14,7 +14,7 @@ Welcome to the **Daily Market Visit** web application guide. This document provi
 7. [Theme Customization (Dark / Light Mode)](#7-theme-customization-dark--light-mode)
 8. [Troubleshooting & FAQs](#8-troubleshooting--faqs)
 
----
+
 
 ## 1. Overview
 
