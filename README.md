@@ -46,7 +46,7 @@ display_name = "Administrator"
 password_hash = "PASTE_SHA256_HASH"
 role = "admin"
 ```
-
+---
 A partner user is restricted to one Universe distributor code:
 
 ```toml
